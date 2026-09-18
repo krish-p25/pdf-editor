@@ -1,5 +1,5 @@
-import { PDFDocument, degrees, rgb, type PDFFont, type PDFPage, type RGB } from 'pdf-lib';
-import fontkit from '@pdf-lib/fontkit';
+import { PDFDocument, degrees, rgb, type PDFFont, type PDFPage, type RGB } from '@cantoo/pdf-lib';
+import fontkit from '@cantoo/fontkit';
 import { layoutText, lineX, variantOf, type FontMetrics, type FontVariant } from './fontMetrics';
 import { rectToPdf } from '../geometry/coords';
 import { isText, type Doc, type ShapeObject, type TextObject } from '../model/types';
