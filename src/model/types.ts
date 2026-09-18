@@ -59,6 +59,15 @@ export interface ShapeObject extends BaseObject {
 
 export type EditorObject = TextObject | ShapeObject;
 
+/** The whole working document. `sourceBytes` is never mutated. */
+export interface Doc {
+  fileName: string;
+  sourceBytes: Uint8Array;
+  /** Array order IS the export order. */
+  pages: Page[];
+  objects: Record<ObjectId, EditorObject>;
+}
+
 export const isText = (o: EditorObject): o is TextObject => o.kind === 'text';
 export const isShape = (o: EditorObject): o is ShapeObject => o.kind !== 'text';
 
