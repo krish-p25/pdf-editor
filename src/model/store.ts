@@ -21,6 +21,17 @@ interface State {
   snapEnabled: boolean;
   error: string | null;
 
+  /** Text object currently open for typing, if any. */
+  editingObjectId: ObjectId | null;
+  /**
+   * Whether entering edit mode should select the whole text.
+   *
+   * True only for a freshly drawn box, whose placeholder should vanish as
+   * soon as the user types. Re-entering an existing box must place the caret
+   * at the end instead, or the first keystroke would wipe their content.
+   */
+  editSelectAll: boolean;
+
   loadDoc(doc: Doc): void;
   closeDoc(): void;
   setTool(t: ToolId): void;
@@ -31,6 +42,10 @@ interface State {
 
   select(ids: ObjectId[]): void;
   clearSelection(): void;
+
+  /** Open a text object for typing. Selects it too, so the panel follows. */
+  beginEditing(id: ObjectId, selectAll?: boolean): void;
+  endEditing(): void;
 
   addObject(o: EditorObject): void;
   updateObject(id: ObjectId, patch: Partial<EditorObject>): void;
@@ -102,6 +117,8 @@ export const useStore = create<State>((set, get) => {
     zoom: 1,
     snapEnabled: true,
     error: null,
+    editingObjectId: null,
+    editSelectAll: false,
 
     loadDoc(doc) {
       history.reset(snapshot(doc));
@@ -112,22 +129,40 @@ export const useStore = create<State>((set, get) => {
         error: null,
         zoom: 1,
         tool: 'select',
+        editingObjectId: null,
+        editSelectAll: false,
       });
     },
 
     closeDoc() {
       history.reset({ pages: [], objects: {} });
-      set({ doc: null, activePageId: null, selection: [], error: null });
+      set({
+        doc: null,
+        activePageId: null,
+        selection: [],
+        error: null,
+        editingObjectId: null,
+      });
     },
 
-    setTool: (tool) => set({ tool }),
-    setActivePage: (activePageId) => set({ activePageId, selection: [] }),
+    setTool: (tool) =>
+      set(tool === 'select' ? { tool } : { tool, editingObjectId: null }),
+    setActivePage: (activePageId) =>
+      set({ activePageId, selection: [], editingObjectId: null }),
     setZoom: (zoom) => set({ zoom: Math.min(4, Math.max(0.25, Math.round(zoom * 100) / 100)) }),
     setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
     setError: (error) => set({ error }),
 
     select: (selection) => set({ selection }),
-    clearSelection: () => set({ selection: [] }),
+    clearSelection: () => set({ selection: [], editingObjectId: null }),
+
+    beginEditing(id, selectAll = false) {
+      const o = get().doc?.objects[id];
+      if (!o || o.kind !== 'text') return;
+      set({ editingObjectId: id, editSelectAll: selectAll, selection: [id], tool: 'select' });
+    },
+
+    endEditing: () => set({ editingObjectId: null, editSelectAll: false }),
 
     addObject(o) {
       mutate((doc) => {
@@ -167,7 +202,7 @@ export const useStore = create<State>((set, get) => {
           if (page) page.objectIds = page.objectIds.filter((x) => x !== id);
         }
       });
-      set({ selection: [] });
+      set({ selection: [], editingObjectId: null });
     },
 
     bringToFront(id) {
