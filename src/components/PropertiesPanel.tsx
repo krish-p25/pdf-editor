@@ -9,6 +9,7 @@ export function PropertiesPanel() {
   const deleteObjects = useStore((s) => s.deleteObjects);
   const bringToFront = useStore((s) => s.bringToFront);
   const sendToBack = useStore((s) => s.sendToBack);
+  const beginEditing = useStore((s) => s.beginEditing);
 
   const o: EditorObject | undefined =
     selection.length === 1 ? doc?.objects[selection[0]] : undefined;
@@ -27,6 +28,16 @@ export function PropertiesPanel() {
     <aside className="w-64 shrink-0 space-y-5 overflow-y-auto border-l border-edge bg-panel p-4">
       {isText(o) ? (
         <Section title="Text">
+          <button
+            type="button"
+            onClick={() => beginEditing(o.id, false)}
+            className="w-full rounded-md border border-accent bg-white py-1.5 text-sm font-medium text-accent transition-colors hover:bg-blue-50"
+          >
+            Edit text
+          </button>
+          <div className="pb-1 text-xs text-slate-400">
+            Or double-click the box, or press Enter.
+          </div>
           <Row label="Size">
             <NumberInput
               value={o.fontSize}
