@@ -46,11 +46,14 @@ export function ObjectLayer({ page, zoom }: Props) {
   const updateObjectTransient = useStore((s) => s.updateObjectTransient);
   const commitInteraction = useStore((s) => s.commitInteraction);
   const snapEnabled = useStore((s) => s.snapEnabled);
+  const editingId = useStore((s) => s.editingObjectId);
+  const editSelectAll = useStore((s) => s.editSelectAll);
+  const beginEditing = useStore((s) => s.beginEditing);
+  const endEditing = useStore((s) => s.endEditing);
 
   const layer = useRef<HTMLDivElement>(null);
   const interaction = useRef<Interaction | null>(null);
   const [indicators, setIndicators] = useState<SnapIndicator[]>([]);
-  const [editingId, setEditingId] = useState<string | null>(null);
 
   // The ref is the source of truth; the state copy exists only to render the
   // dashed preview. If pointerup lands in the same tick as the last
@@ -207,7 +210,7 @@ export function ObjectLayer({ page, zoom }: Props) {
         lineHeight: 1.3,
       };
       addObject(o);
-      setEditingId(id);
+      beginEditing(id, true);
       return;
     }
 
@@ -272,22 +275,25 @@ export function ObjectLayer({ page, zoom }: Props) {
               top: o.y * zoom,
               width: o.width * zoom,
               height: o.height * zoom,
+              cursor: tool !== 'select' ? 'crosshair' : isText(o) ? 'text' : 'move',
             }}
             onPointerDown={(e) => beginMove(e, o)}
             onDoubleClick={(e) => {
               if (isText(o)) {
                 e.stopPropagation();
-                setEditingId(o.id);
+                beginEditing(o.id, false);
               }
             }}
+            title={isText(o) ? 'Double-click to edit text' : undefined}
           >
             {isText(o) ? (
               <TextObjectView
                 o={o}
                 zoom={zoom}
                 editing={editingId === o.id}
+                selectAll={editSelectAll}
                 onFinishEditing={() => {
-                  setEditingId(null);
+                  endEditing();
                   commitInteraction();
                 }}
               />
