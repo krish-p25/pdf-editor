@@ -1,4 +1,4 @@
-import { PDFArray, PDFDocument, PDFRawStream, type PDFRef } from 'pdf-lib';
+import { PDFArray, PDFDocument, PDFRawStream, type PDFRef } from '@cantoo/pdf-lib';
 import { inflateSync } from 'node:zlib';
 
 export interface DrawnText {
