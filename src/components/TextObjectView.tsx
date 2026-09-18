@@ -7,6 +7,8 @@ interface Props {
   o: TextObject;
   zoom: number;
   editing: boolean;
+  /** Select the existing text on entry (new boxes) rather than caret-to-end. */
+  selectAll: boolean;
   onFinishEditing(): void;
 }
 
@@ -21,7 +23,7 @@ const FAMILY = 'InterPdf, Inter, sans-serif';
  * will draw. That makes preview/export agreement structural rather than
  * something to verify by eye.
  */
-export function TextObjectView({ o, zoom, editing, onFinishEditing }: Props) {
+export function TextObjectView({ o, zoom, editing, selectAll, onFinishEditing }: Props) {
   const variant = variantOf(o.bold, o.italic);
   const metrics = getLoadedFont(variant);
   const updateObjectTransient = useStore((s) => s.updateObjectTransient);
@@ -52,12 +54,19 @@ export function TextObjectView({ o, zoom, editing, onFinishEditing }: Props) {
   }, [layout, o.height, o.id, updateObjectTransient]);
 
   useEffect(() => {
-    if (editing) {
-      const el = textarea.current;
-      el?.focus();
-      el?.setSelectionRange(0, el.value.length);
+    if (!editing) return;
+    const el = textarea.current;
+    if (!el) return;
+    el.focus();
+    if (selectAll) {
+      // A freshly drawn box: its placeholder should vanish on first keystroke.
+      el.setSelectionRange(0, el.value.length);
+    } else {
+      // Re-entering existing text: put the caret at the end. Selecting all
+      // here would mean one keystroke destroys whatever they already wrote.
+      el.setSelectionRange(el.value.length, el.value.length);
     }
-  }, [editing]);
+  }, [editing, selectAll]);
 
   if (!layout) return null;
 
