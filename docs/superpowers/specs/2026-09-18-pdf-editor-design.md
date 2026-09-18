@@ -384,7 +384,7 @@ FROM nginx:alpine
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 3007
 
 CMD ["nginx", "-g", "daemon off;"]
 ```
@@ -410,7 +410,7 @@ not copy `.env`, and there is nothing secret to leak into the bundle.
 
 ```nginx
 server {
-    listen 80;
+    listen 3007;
     server_name _;
     root /usr/share/nginx/html;
 
@@ -458,20 +458,24 @@ services:
     image: pdf-editor:latest
     container_name: pdf-editor-app
     ports:
-      - "${APP_PORT:-3007}:80"
+      - "${APP_PORT:-3007}:3007"
     environment:
       NGINX_ENTRYPOINT_QUIET_LOGS: "1"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3007/healthz"]
       interval: 30s
       timeout: 3s
       retries: 3
 ```
 
-Port 3007 by default — 3005 is postmail's API, 3006 its dashboard URL, and
-5433 the shared Postgres. Overridable via `APP_PORT`, matching postmail's
-`${API_PORT:-3005}` convention.
+nginx listens on **3007 inside the container**, not 80, so the port is the same
+on both sides of the mapping — matching postmail, which listens on its own 3005
+internally rather than mapping across ports.
+
+3007 is chosen because 3005 is postmail's API, 3006 its dashboard URL, and 5433
+the shared Postgres. The published port is overridable via `APP_PORT`, matching
+postmail's `${API_PORT:-3005}` convention.
 
 No `networks` block: postmail joins the external `shared-db` network because it
 needs Postgres. This app has no backing services, so it stays on the default
