@@ -28,6 +28,8 @@ documents never leave their machine.
 - Undo/redo, copy/paste/duplicate, multi-select, keyboard nudge, zoom.
 - Autosave to IndexedDB; work survives a refresh.
 - Export a PDF with all edits applied.
+- Containerised deployment: production build served from a Docker image, with
+  a `docker-compose.yml` and a one-command deploy.
 
 ### Out of scope for v1
 
@@ -330,3 +332,203 @@ produced. That is what proves preview and export have not drifted apart.
 
 React components are verified by use rather than by test, since they hold
 little logic once the pure modules are extracted.
+
+## Deployment
+
+Follows the hosting structure established by `postmail`: a multi-stage
+Dockerfile that builds to `dist` inside the image, a lean production stage that
+copies **only** the built output, a `docker-compose.yml` pinned to a
+`:latest` tag, and a single `npm run deploy` script.
+
+The container serves the **production build**. A Vite dev server is never
+exposed — not in any stage, not in compose. Dev servers ship unminified
+sources, run a filesystem watcher, and have a websocket HMR endpoint open;
+none of that belongs on a host.
+
+### Runtime: nginx, not Node
+
+`postmail` runs `node:20-alpine` in production because its Express API serves
+the dashboard as a side effect of already being there. This app has no
+server-side component at all — it is a static bundle by design. A Node process
+existing only to `express.static` a directory would cost roughly 100MB of
+resident memory and a much larger image for no functional gain.
+
+The production stage is therefore `nginx:alpine`. The build stages remain
+`node:20-alpine`, matching postmail.
+
+### Dockerfile
+
+```dockerfile
+# ── Stage 1: Install deps ────────────────────────────────
+FROM node:20-alpine AS deps
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+
+RUN --mount=type=cache,target=/root/.npm npm ci
+
+# ── Stage 2: Build to dist (Vite) ────────────────────────
+FROM deps AS build
+
+WORKDIR /app
+COPY . .
+
+# `npm run build` = `tsc -b && vite build`.
+# Type errors fail the image build rather than shipping.
+RUN npm run build
+
+# ── Stage 3: Production image ────────────────────────────
+FROM nginx:alpine
+
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+`npm ci` rather than postmail's `npm install`, because a lockfile exists and
+reproducible image builds are worth more than lockfile drift tolerance. The
+npm cache mount is kept.
+
+The final image carries no `node_modules`, no source, and no build toolchain —
+only the contents of `dist` plus nginx. Expected size is roughly 60MB against
+roughly 200MB for a Node-based equivalent.
+
+### No build-time environment
+
+`postmail` copies `.env` into its dashboard build stage because Vite inlines
+`VITE_*` variables at build time. This app has **no** build-time configuration:
+no API base URL, no keys, no feature flags. The Dockerfile deliberately does
+not copy `.env`, and there is nothing secret to leak into the bundle.
+
+### nginx configuration
+
+`docker/nginx.conf`:
+
+```nginx
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # Large JS payloads (pdf.js, pdf-lib) and font files compress well.
+    gzip on;
+    gzip_types text/css application/javascript application/wasm
+               font/ttf image/svg+xml;
+    gzip_min_length 1024;
+
+    # Vite content-hashes asset filenames, so they are safe to cache forever.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # index.html must NOT be cached: it names the hashed assets, and a stale
+    # copy points at asset hashes that no longer exist after a redeploy.
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    # Health endpoint, mirroring postmail's /health.
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+        add_header Content-Type text/plain;
+    }
+
+    # SPA fallback — equivalent to postmail's `app.get('*')` sendFile.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+The caching split is load-bearing. Serving `index.html` from cache after a
+redeploy produces a blank page referencing deleted asset hashes, and it is the
+single most common way a static SPA deploy breaks.
+
+### docker-compose.yml
+
+```yaml
+services:
+  app:
+    image: pdf-editor:latest
+    container_name: pdf-editor-app
+    ports:
+      - "${APP_PORT:-3007}:80"
+    environment:
+      NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+```
+
+Port 3007 by default — 3005 is postmail's API, 3006 its dashboard URL, and
+5433 the shared Postgres. Overridable via `APP_PORT`, matching postmail's
+`${API_PORT:-3005}` convention.
+
+No `networks` block: postmail joins the external `shared-db` network because it
+needs Postgres. This app has no backing services, so it stays on the default
+bridge.
+
+### .dockerignore
+
+Mirrors postmail's, minus the monorepo paths:
+
+```
+node_modules
+**/node_modules
+.git
+.gitignore
+*.md
+docs
+.env
+.env.*
+!.env.example
+dist
+coverage
+.vscode
+.idea
+*.log
+```
+
+`dist` is ignored deliberately. A stale `dist` from a host machine must never
+be copied in — the image builds its own from source every time.
+
+### Deploy script
+
+`package.json`, matching postmail's `deploy` script exactly in form:
+
+```json
+"scripts": {
+  "dev": "vite",
+  "build": "tsc -b && vite build",
+  "preview": "vite preview",
+  "test": "vitest run",
+  "deploy": "docker build -t pdf-editor:latest . && docker compose up -d"
+}
+```
+
+### Verification
+
+A deploy is confirmed by evidence, not assumption:
+
+1. `docker build -t pdf-editor:latest .` exits 0.
+2. `docker compose up -d`, then `docker compose ps` shows the container
+   healthy.
+3. `curl -f http://localhost:3007/healthz` returns `ok`.
+4. `curl -sI http://localhost:3007/` returns 200 with
+   `Cache-Control: no-cache`.
+5. `curl -sI http://localhost:3007/assets/<hashed>.js` returns 200 with
+   `immutable`.
+6. A deep link such as `http://localhost:3007/anything` returns the SPA rather
+   than a 404, proving the fallback works.
+7. Load a real PDF in the browser, add a text box and a shape, export, and
+   reopen the exported file — the end-to-end check that the container serves a
+   working build, not merely a build.
