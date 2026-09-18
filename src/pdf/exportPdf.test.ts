@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument } from '@cantoo/pdf-lib';
 import { exportPdf, hexToRgb, type FontSet } from './exportPdf';
 import { createMetrics, layoutText, lineX } from './fontMetrics';
 import { drawnTextOnPage } from './contentStream';
