@@ -14,9 +14,11 @@ const TOOLS: { id: ToolId; label: string; key: string; glyph: string }[] = [
 interface Props {
   onExport(): void;
   exporting: boolean;
+  onSaveBackup(): void;
+  onLoadBackup(file: File): void;
 }
 
-export function Toolbar({ onExport, exporting }: Props) {
+export function Toolbar({ onExport, exporting, onSaveBackup, onLoadBackup }: Props) {
   const tool = useStore((s) => s.tool);
   const setTool = useStore((s) => s.setTool);
   const zoom = useStore((s) => s.zoom);
@@ -72,9 +74,36 @@ export function Toolbar({ onExport, exporting }: Props) {
 
       <button
         type="button"
+        onClick={onSaveBackup}
+        title="Download all your edits as a .json file you can re-import later"
+        className="rounded-md border border-edge px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-50"
+      >
+        Save backup
+      </button>
+
+      <label
+        title="Restore edits from a .pdfedit.json backup"
+        className="cursor-pointer rounded-md border border-edge px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-50"
+      >
+        Restore
+        <input
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onLoadBackup(file);
+            // Reset so picking the same file twice still fires a change event.
+            e.target.value = '';
+          }}
+        />
+      </label>
+
+      <button
+        type="button"
         onClick={onExport}
         disabled={exporting}
-        className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+        className="ml-1 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
       >
         {exporting ? 'Exporting…' : 'Export PDF'}
       </button>
