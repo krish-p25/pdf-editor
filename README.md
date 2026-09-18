@@ -133,3 +133,11 @@ Two details that turn out to matter:
 ## Browser support
 
 Any current version of Chrome, Edge, Firefox, Safari or another Chromium-based browser. It needs a desktop-sized window — precise drag-and-drop editing on a phone screen isn't a good experience, so mobile isn't a target.
+
+---
+
+## Licence
+
+Released under the [MIT Licence](LICENSE) — use it, modify it, host your own copy, build something else on top of it.
+
+One exception worth knowing about: the bundled Inter font files in `public/fonts/` are **not** covered by that licence. Inter is copyright The Inter Project Authors and released under the [SIL Open Font License 1.1](public/fonts/LICENSE.txt), which permits redistribution and embedding but carries its own conditions.
