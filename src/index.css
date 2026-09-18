@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+/*
+ * Critical: pdf-lib does not kern or ligate when it draws text, so the preview
+ * must not either. Without this the DOM is up to ~4% narrower than the export
+ * on kern-heavy strings and the two drift apart.
+ */
+.pdf-text {
+  font-kerning: none;
+  font-variant-ligatures: none;
+  font-feature-settings: "kern" 0, "liga" 0, "calt" 0;
+  white-space: pre;
+}
