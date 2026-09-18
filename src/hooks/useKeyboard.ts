@@ -87,6 +87,17 @@ export function useKeyboard() {
         return;
       }
 
+      // Enter (and F2, the Windows convention) opens the selected text box
+      // for editing, so re-editing never depends on discovering double-click.
+      if ((e.key === 'Enter' || e.key === 'F2') && s.selection.length === 1) {
+        const o = s.doc?.objects[s.selection[0]];
+        if (o && o.kind === 'text') {
+          e.preventDefault();
+          s.beginEditing(o.id, false);
+          return;
+        }
+      }
+
       if (e.key === 'Escape') {
         s.clearSelection();
         s.setTool('select');
