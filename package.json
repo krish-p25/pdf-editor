@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Client-side PDF editor: reorder pages, overlay text and shapes, export",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
