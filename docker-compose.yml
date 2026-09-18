@@ -1,0 +1,14 @@
+services:
+  app:
+    image: pdf-editor:latest
+    container_name: pdf-editor-app
+    ports:
+      - "${APP_PORT:-3007}:80"
+    environment:
+      NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3

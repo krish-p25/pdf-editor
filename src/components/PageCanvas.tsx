@@ -22,14 +22,12 @@ export function PageCanvas({ proxy, page, zoom, children }: Props) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
-  // Rasterise at a higher scale than display so the page stays sharp, but cap
-  // it so large zooms do not produce enormous bitmaps.
-  const renderScale = Math.min(Math.max(zoom * 1.5, 1), 3);
-
+  // Pass the CSS scale the page is displayed at; renderPage multiplies by the
+  // device pixel ratio itself so the raster matches physical pixels exactly.
   useEffect(() => {
     let cancelled = false;
     setFailed(false);
-    renderPage(proxy, page.sourceIndex, renderScale)
+    renderPage(proxy, page.sourceIndex, zoom)
       .then((url) => {
         if (!cancelled) setSrc(url);
       })
@@ -39,7 +37,7 @@ export function PageCanvas({ proxy, page, zoom, children }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [proxy, page.sourceIndex, renderScale]);
+  }, [proxy, page.sourceIndex, zoom]);
 
   const display = displaySize(page);
   const innerW = page.width * zoom;
@@ -52,7 +50,10 @@ export function PageCanvas({ proxy, page, zoom, children }: Props) {
       // displayToPage(). Measuring against the rotated inner div instead would
       // send drags in the wrong direction on rotated pages.
       data-page-root=""
-      className="relative shadow-lg ring-1 ring-black/10"
+      // shrink-0 is load-bearing: as a flex item this would otherwise be
+      // squeezed below its width when the viewport is narrow, squashing the
+      // page horizontally while its height stayed put.
+      className="relative shrink-0 shadow-lg ring-1 ring-black/10"
       style={{ width: display.width * zoom, height: display.height * zoom }}
     >
       <div

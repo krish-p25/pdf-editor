@@ -18,6 +18,9 @@ interface Props {
   proxy: PDFDocumentProxy;
 }
 
+/** Usable width of a thumbnail inside the rail, in CSS pixels. */
+const THUMBNAIL_WIDTH_PX = 148;
+
 export function ThumbnailRail({ proxy }: Props) {
   const doc = useStore((s) => s.doc);
   const activePageId = useStore((s) => s.activePageId);
@@ -76,11 +79,16 @@ function Thumbnail({ proxy, page, index, active, canDelete, onSelect }: ThumbPro
   const rotatePage = useStore((s) => s.rotatePage);
   const [src, setSrc] = useState<string | null>(null);
 
-  // Thumbnails render lazily and the render cache keeps a 200-page document
-  // from stalling on load.
+  // Scale to the box the thumbnail actually occupies rather than a fixed
+  // factor, so pages of any size fill it at the right resolution. renderPage
+  // applies the device pixel ratio on top.
+  const cssScale = THUMBNAIL_WIDTH_PX / page.width;
+
+  // Thumbnails render lazily and the render cache keeps a long document from
+  // stalling on load.
   useEffect(() => {
     let cancelled = false;
-    renderPage(proxy, page.sourceIndex, 0.3)
+    renderPage(proxy, page.sourceIndex, cssScale)
       .then((url) => {
         if (!cancelled) setSrc(url);
       })
@@ -88,7 +96,7 @@ function Thumbnail({ proxy, page, index, active, canDelete, onSelect }: ThumbPro
     return () => {
       cancelled = true;
     };
-  }, [proxy, page.sourceIndex]);
+  }, [proxy, page.sourceIndex, cssScale]);
 
   const swapped = page.rotation === 90 || page.rotation === 270;
 
