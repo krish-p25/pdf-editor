@@ -44,18 +44,47 @@ export interface TextObject extends BaseObject {
   lineHeight: number;
 }
 
-export type ShapeKind = 'rect' | 'ellipse' | 'triangle' | 'line' | 'arrow';
+export type BoxShapeKind = 'rect' | 'ellipse' | 'triangle';
+export type LineShapeKind = 'line' | 'arrow';
+export type ShapeKind = BoxShapeKind | LineShapeKind;
 
-export interface ShapeObject extends BaseObject {
-  kind: ShapeKind;
+/** A shape whose form is defined by its bounding box. */
+export interface BoxShapeObject extends BaseObject {
+  kind: BoxShapeKind;
   fill: string;
   fillOpacity: number;
   stroke: string;
   strokeWidth: number;
   strokeOpacity: number;
   cornerRadius?: number;
+}
+
+/**
+ * A line or arrow, defined by two points rather than a box.
+ *
+ * x1/y1 and x2/y2 are RELATIVE to the object's x/y. Keeping them relative
+ * means moving, nudging and snapping only touch x/y, and the endpoints follow
+ * automatically. x/y/width/height remain the derived bounding box, so
+ * selection, z-order and snapping work unchanged.
+ *
+ * Modelling these as a box would lose direction (a box has two diagonals) and
+ * could not represent a horizontal or vertical line at all.
+ */
+export interface LineShapeObject extends BaseObject {
+  kind: LineShapeKind;
+  /** Start of the line, where the drag began. */
+  x1: number;
+  y1: number;
+  /** End of the line. An arrow's head sits here. */
+  x2: number;
+  y2: number;
+  stroke: string;
+  strokeWidth: number;
+  strokeOpacity: number;
   arrowHeadSize?: number;
 }
+
+export type ShapeObject = BoxShapeObject | LineShapeObject;
 
 export type EditorObject = TextObject | ShapeObject;
 
@@ -70,5 +99,11 @@ export interface Doc {
 
 export const isText = (o: EditorObject): o is TextObject => o.kind === 'text';
 export const isShape = (o: EditorObject): o is ShapeObject => o.kind !== 'text';
+
+export const isLine = (o: EditorObject): o is LineShapeObject =>
+  o.kind === 'line' || o.kind === 'arrow';
+
+export const isBoxShape = (o: EditorObject): o is BoxShapeObject =>
+  o.kind === 'rect' || o.kind === 'ellipse' || o.kind === 'triangle';
 
 export type ToolId = 'select' | 'text' | ShapeKind;
