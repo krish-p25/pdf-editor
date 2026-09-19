@@ -1,32 +1,34 @@
 import { useCallback, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import { nextId, useStore } from '../model/store';
 import { displayToPage } from '../geometry/coords';
+import { arrowHead, constrainTo45, lineFromPoints, type Point } from '../geometry/lines';
 import { resolveSnap, type SnapIndicator, type SnapTarget } from '../geometry/snapping';
 import { SnapIndicators } from './SnapIndicators';
 import { ShapeObjectView } from './ShapeObjectView';
 import { TextObjectView } from './TextObjectView';
 import {
+  isBoxShape,
+  isLine,
   isText,
+  type BoxShapeKind,
+  type BoxShapeObject,
   type EditorObject,
+  type LineShapeKind,
+  type LineShapeObject,
   type Page,
   type Rect,
-  type ShapeKind,
-  type ShapeObject,
   type TextObject,
 } from '../model/types';
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const;
 type Handle = (typeof HANDLES)[number];
 
-interface Point {
-  x: number;
-  y: number;
-}
-
 type Interaction =
-  | { mode: 'create'; start: Point }
+  | { mode: 'create-box'; start: Point }
+  | { mode: 'create-line'; start: Point }
   | { mode: 'move'; ids: string[]; start: Point; origins: Record<string, Rect> }
-  | { mode: 'resize'; id: string; handle: Handle; origin: Rect };
+  | { mode: 'resize'; id: string; handle: Handle; origin: Rect }
+  | { mode: 'endpoint'; id: string; which: 'start' | 'end'; anchor: Point };
 
 interface Props {
   page: Page;
@@ -35,6 +37,12 @@ interface Props {
 
 /** Snap threshold in SCREEN pixels; converted to points using the zoom. */
 const SNAP_THRESHOLD_PX = 6;
+
+/** Minimum drag before a new object is kept, in points. */
+const MIN_BOX_SIZE = 3;
+const MIN_LINE_LENGTH = 4;
+
+const isLineTool = (tool: string): tool is LineShapeKind => tool === 'line' || tool === 'arrow';
 
 export function ObjectLayer({ page, zoom }: Props) {
   const doc = useStore((s) => s.doc);
@@ -55,15 +63,22 @@ export function ObjectLayer({ page, zoom }: Props) {
   const interaction = useRef<Interaction | null>(null);
   const [indicators, setIndicators] = useState<SnapIndicator[]>([]);
 
-  // The ref is the source of truth; the state copy exists only to render the
-  // dashed preview. If pointerup lands in the same tick as the last
-  // pointermove, React's batching would leave the state copy stale and the
-  // new object would be silently discarded.
+  // Refs are the source of truth; the state copies exist only to render the
+  // preview. If pointerup lands in the same tick as the last pointermove,
+  // React's batching would leave a state copy stale and the new object would
+  // be silently discarded.
   const draftRef = useRef<Rect | null>(null);
   const [draft, setDraftState] = useState<Rect | null>(null);
   const setDraft = useCallback((r: Rect | null) => {
     draftRef.current = r;
     setDraftState(r);
+  }, []);
+
+  const lineDraftRef = useRef<{ start: Point; end: Point } | null>(null);
+  const [lineDraft, setLineDraftState] = useState<{ start: Point; end: Point } | null>(null);
+  const setLineDraft = useCallback((l: { start: Point; end: Point } | null) => {
+    lineDraftRef.current = l;
+    setLineDraftState(l);
   }, []);
 
   const objects = (
@@ -108,9 +123,17 @@ export function ObjectLayer({ page, zoom }: Props) {
 
     if (tool !== 'select') {
       const start = toPage(e);
-      interaction.current = { mode: 'create', start };
-      setDraft({ x: start.x, y: start.y, width: 0, height: 0 });
       e.currentTarget.setPointerCapture(e.pointerId);
+
+      if (isLineTool(tool)) {
+        // A line is two points, not a box: press marks the first point and
+        // release marks the second.
+        interaction.current = { mode: 'create-line', start };
+        setLineDraft({ start, end: start });
+      } else {
+        interaction.current = { mode: 'create-box', start };
+        setDraft({ x: start.x, y: start.y, width: 0, height: 0 });
+      }
       return;
     }
 
@@ -123,14 +146,22 @@ export function ObjectLayer({ page, zoom }: Props) {
     if (!current) return;
     const p = toPage(e);
 
-    if (current.mode === 'create') {
+    if (current.mode === 'create-line') {
+      setLineDraft({ start: current.start, end: e.shiftKey ? constrainTo45(current.start, p) : p });
+      return;
+    }
+
+    if (current.mode === 'endpoint') {
+      const end = e.shiftKey ? constrainTo45(current.anchor, p) : p;
+      const from = current.which === 'end' ? current.anchor : end;
+      const to = current.which === 'end' ? end : current.anchor;
+      updateObjectTransient(current.id, lineFromPoints(from, to));
+      return;
+    }
+
+    if (current.mode === 'create-box') {
       let rect = normalise(current.start, p);
-      if (e.shiftKey) {
-        rect =
-          tool === 'line' || tool === 'arrow'
-            ? constrainAngle(current.start, p)
-            : constrainSquare(current.start, rect);
-      }
+      if (e.shiftKey) rect = constrainSquare(current.start, rect);
       setDraft(rect);
       return;
     }
@@ -180,19 +211,43 @@ export function ObjectLayer({ page, zoom }: Props) {
 
   const onPointerUp = () => {
     const current = interaction.current;
-    if (current?.mode === 'create') {
+
+    if (current?.mode === 'create-line') {
+      const line = lineDraftRef.current;
+      if (line && Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y) >= MIN_LINE_LENGTH) {
+        createLine(line.start, line.end);
+      }
+      setLineDraft(null);
+      setTool('select');
+    } else if (current?.mode === 'create-box') {
       const rect = draftRef.current;
-      if (rect && rect.width >= 3 && rect.height >= 3) createObject(rect);
+      if (rect && rect.width >= MIN_BOX_SIZE && rect.height >= MIN_BOX_SIZE) createBox(rect);
       setDraft(null);
       setTool('select');
     } else if (current) {
       commitInteraction();
     }
+
     interaction.current = null;
     setIndicators([]);
   };
 
-  const createObject = (rect: Rect) => {
+  const createLine = (start: Point, end: Point) => {
+    if (!isLineTool(tool)) return;
+    const o: LineShapeObject = {
+      id: nextId('obj'),
+      pageId: page.id,
+      kind: tool,
+      ...lineFromPoints(start, end),
+      stroke: '#1d4ed8',
+      strokeWidth: 2,
+      strokeOpacity: 1,
+      ...(tool === 'arrow' ? { arrowHeadSize: 10 } : {}),
+    };
+    addObject(o);
+  };
+
+  const createBox = (rect: Rect) => {
     const id = nextId('obj');
 
     if (tool === 'text') {
@@ -214,19 +269,17 @@ export function ObjectLayer({ page, zoom }: Props) {
       return;
     }
 
-    const strokeOnly = tool === 'line' || tool === 'arrow';
-    const o: ShapeObject = {
+    const o: BoxShapeObject = {
       id,
       pageId: page.id,
-      kind: tool as ShapeKind,
+      kind: tool as BoxShapeKind,
       ...rect,
-      fill: strokeOnly ? 'none' : '#bfdbfe',
+      fill: '#bfdbfe',
       fillOpacity: 1,
       stroke: '#1d4ed8',
       strokeWidth: 2,
       strokeOpacity: 1,
-      cornerRadius: tool === 'rect' ? 0 : undefined,
-      arrowHeadSize: tool === 'arrow' ? 10 : undefined,
+      ...(tool === 'rect' ? { cornerRadius: 0 } : {}),
     };
     addObject(o);
   };
@@ -254,6 +307,21 @@ export function ObjectLayer({ page, zoom }: Props) {
     layer.current?.setPointerCapture(e.pointerId);
   };
 
+  const beginEndpointDrag = (
+    e: PointerEvent<HTMLDivElement>,
+    o: LineShapeObject,
+    which: 'start' | 'end',
+  ) => {
+    e.stopPropagation();
+    // The opposite end stays put and anchors any 45-degree constraint.
+    const anchor =
+      which === 'end'
+        ? { x: o.x + o.x1, y: o.y + o.y1 }
+        : { x: o.x + o.x2, y: o.y + o.y2 };
+    interaction.current = { mode: 'endpoint', id: o.id, which, anchor };
+    layer.current?.setPointerCapture(e.pointerId);
+  };
+
   return (
     <div
       ref={layer}
@@ -266,6 +334,8 @@ export function ObjectLayer({ page, zoom }: Props) {
     >
       {objects.map((o) => {
         const selected = selection.includes(o.id);
+        const line = isLine(o) ? o : null;
+
         return (
           <div
             key={o.id}
@@ -301,7 +371,25 @@ export function ObjectLayer({ page, zoom }: Props) {
               <ShapeObjectView o={o} zoom={zoom} />
             )}
 
-            {selected && editingId !== o.id && (
+            {selected && editingId !== o.id && line && (
+              // A line is adjusted by its two ends, not by a bounding box.
+              <>
+                <EndpointHandle
+                  x={line.x1 * zoom}
+                  y={line.y1 * zoom}
+                  label="Move line start"
+                  onPointerDown={(e) => beginEndpointDrag(e, line, 'start')}
+                />
+                <EndpointHandle
+                  x={line.x2 * zoom}
+                  y={line.y2 * zoom}
+                  label="Move line end"
+                  onPointerDown={(e) => beginEndpointDrag(e, line, 'end')}
+                />
+              </>
+            )}
+
+            {selected && editingId !== o.id && !line && (
               <>
                 <div className="pointer-events-none absolute -inset-px ring-1 ring-accent" />
                 {HANDLES.map((h) => (
@@ -339,8 +427,77 @@ export function ObjectLayer({ page, zoom }: Props) {
         />
       )}
 
+      {lineDraft && isLineTool(tool) && (
+        <LinePreview start={lineDraft.start} end={lineDraft.end} kind={tool} zoom={zoom} />
+      )}
+
       <SnapIndicators indicators={indicators} zoom={zoom} />
     </div>
+  );
+}
+
+/**
+ * Half-opacity preview of the line being drawn, so the user can see exactly
+ * where it will land — including which end gets the arrow head — before
+ * releasing the button.
+ */
+function LinePreview({
+  start,
+  end,
+  kind,
+  zoom,
+}: {
+  start: Point;
+  end: Point;
+  kind: LineShapeKind;
+  zoom: number;
+}) {
+  const a = { x: start.x * zoom, y: start.y * zoom };
+  const b = { x: end.x * zoom, y: end.y * zoom };
+  const head = kind === 'arrow' ? arrowHead(a, b, 10 * zoom) : null;
+  const shaftEnd = head ? head.shaftEnd : b;
+
+  return (
+    <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" style={{ opacity: 0.5 }}>
+      <line
+        x1={a.x}
+        y1={a.y}
+        x2={shaftEnd.x}
+        y2={shaftEnd.y}
+        stroke="#1d4ed8"
+        strokeWidth={2 * zoom}
+        strokeLinecap="round"
+      />
+      {head && (
+        <polygon
+          points={`${head.tip.x},${head.tip.y} ${head.left.x},${head.left.y} ${head.right.x},${head.right.y}`}
+          fill="#1d4ed8"
+        />
+      )}
+    </svg>
+  );
+}
+
+function EndpointHandle({
+  x,
+  y,
+  label,
+  onPointerDown,
+}: {
+  x: number;
+  y: number;
+  label: string;
+  onPointerDown(e: PointerEvent<HTMLDivElement>): void;
+}) {
+  return (
+    <div
+      role="button"
+      aria-label={label}
+      title={label}
+      onPointerDown={onPointerDown}
+      className="absolute h-2.5 w-2.5 rounded-full border-2 border-accent bg-white"
+      style={{ left: x - 5, top: y - 5, cursor: 'crosshair' }}
+    />
   );
 }
 
@@ -362,20 +519,6 @@ function constrainSquare(start: Point, r: Rect): Rect {
     x: r.x < start.x ? start.x - size : start.x,
     y: r.y < start.y ? start.y - size : start.y,
   };
-}
-
-/**
- * Shift while drawing a LINE or ARROW should constrain it to 45-degree
- * increments, the way it does in Figma, Illustrator and PowerPoint.
- *
- * Lines and arrows are drawn along the bounding box diagonal, from its
- * bottom-left corner to its top-right corner, so the returned rect must
- * describe a box whose diagonal points in the constrained direction.
- */
-function constrainAngle(start: Point, current: Point): Rect {
-  // TODO(human): constrain the line from `start` to `current` to the nearest
-  // 45-degree increment, then return the bounding box via normalise().
-  return normalise(start, current);
 }
 
 function applyHandle(o: Rect, h: Handle, p: Point): Rect {
@@ -406,3 +549,6 @@ function handlePosition(h: Handle): CSSProperties {
       : { left: 'calc(50% - 4px)' };
   return { ...vertical, ...horizontal };
 }
+
+// Re-exported for the properties panel's narrowing.
+export { isBoxShape };
