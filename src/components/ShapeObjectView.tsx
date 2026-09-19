@@ -1,4 +1,5 @@
-import type { ShapeObject } from '../model/types';
+import { arrowHead } from '../geometry/lines';
+import { isLine, type BoxShapeObject, type LineShapeObject, type ShapeObject } from '../model/types';
 
 interface Props {
   o: ShapeObject;
@@ -10,6 +11,10 @@ interface Props {
  * exporter draws, in the same coordinate space scaled by zoom.
  */
 export function ShapeObjectView({ o, zoom }: Props) {
+  return isLine(o) ? <LineView o={o} zoom={zoom} /> : <BoxView o={o} zoom={zoom} />;
+}
+
+function BoxView({ o, zoom }: { o: BoxShapeObject; zoom: number }) {
   const w = o.width * zoom;
   const h = o.height * zoom;
   const sw = o.strokeWidth * zoom;
@@ -52,73 +57,51 @@ export function ShapeObjectView({ o, zoom }: Props) {
       {o.kind === 'triangle' && (
         <polygon points={`${w / 2},${i} ${w - i},${h - i} ${i},${h - i}`} {...paint} />
       )}
-
-      {o.kind === 'line' && (
-        <line
-          x1={0}
-          y1={h}
-          x2={w}
-          y2={0}
-          stroke={o.stroke}
-          strokeWidth={sw}
-          strokeOpacity={o.strokeOpacity}
-        />
-      )}
-
-      {o.kind === 'arrow' && <Arrow o={o} w={w} h={h} sw={sw} zoom={zoom} />}
     </svg>
   );
 }
 
-function Arrow({
-  o,
-  w,
-  h,
-  sw,
-  zoom,
-}: {
-  o: ShapeObject;
-  w: number;
-  h: number;
-  sw: number;
-  zoom: number;
-}) {
-  const head = (o.arrowHeadSize ?? Math.max(6, o.strokeWidth * 3)) * zoom;
+/**
+ * A line or arrow, drawn between its two stored endpoints.
+ *
+ * The SVG viewport is the object's bounding box, which for a horizontal or
+ * vertical line has zero height or width. overflow-visible keeps the stroke
+ * and arrow head drawable outside that degenerate box.
+ */
+function LineView({ o, zoom }: { o: LineShapeObject; zoom: number }) {
+  const sw = o.strokeWidth * zoom;
+  const start = { x: o.x1 * zoom, y: o.y1 * zoom };
+  const end = { x: o.x2 * zoom, y: o.y2 * zoom };
 
-  // Drawn bottom-left to top-right across the box, matching the exporter.
-  const sx = 0;
-  const sy = h;
-  const ex = w;
-  const ey = 0;
-  const angle = Math.atan2(ey - sy, ex - sx);
-
-  // Stop the shaft at the base of the head so a thick stroke does not poke
-  // through the tip.
-  const bx = ex - Math.cos(angle) * head;
-  const by = ey - Math.sin(angle) * head;
-
-  const spread = Math.PI / 7;
-  const p1x = ex - Math.cos(angle - spread) * head;
-  const p1y = ey - Math.sin(angle - spread) * head;
-  const p2x = ex - Math.cos(angle + spread) * head;
-  const p2y = ey - Math.sin(angle + spread) * head;
+  const isArrow = o.kind === 'arrow';
+  const head = isArrow
+    ? arrowHead(start, end, (o.arrowHeadSize ?? Math.max(6, o.strokeWidth * 3)) * zoom)
+    : null;
+  const shaftEnd = head ? head.shaftEnd : end;
 
   return (
-    <>
+    <svg
+      width={Math.max(o.width * zoom, 1)}
+      height={Math.max(o.height * zoom, 1)}
+      className="pointer-events-none block overflow-visible"
+    >
       <line
-        x1={sx}
-        y1={sy}
-        x2={bx}
-        y2={by}
+        x1={start.x}
+        y1={start.y}
+        x2={shaftEnd.x}
+        y2={shaftEnd.y}
         stroke={o.stroke}
         strokeWidth={sw}
         strokeOpacity={o.strokeOpacity}
+        strokeLinecap="round"
       />
-      <polygon
-        points={`${ex},${ey} ${p1x},${p1y} ${p2x},${p2y}`}
-        fill={o.stroke}
-        fillOpacity={o.strokeOpacity}
-      />
-    </>
+      {head && (
+        <polygon
+          points={`${head.tip.x},${head.tip.y} ${head.left.x},${head.left.y} ${head.right.x},${head.right.y}`}
+          fill={o.stroke}
+          fillOpacity={o.strokeOpacity}
+        />
+      )}
+    </svg>
   );
 }
