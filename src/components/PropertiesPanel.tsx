@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useStore } from '../model/store';
-import { isText, type EditorObject } from '../model/types';
+import { lineLength } from '../geometry/lines';
+import { isBoxShape, isLine, isText, type EditorObject } from '../model/types';
 
 export function PropertiesPanel() {
   const doc = useStore((s) => s.doc);
@@ -81,7 +82,7 @@ export function PropertiesPanel() {
         </Section>
       ) : (
         <Section title="Shape">
-          {o.kind !== 'line' && o.kind !== 'arrow' && (
+          {isBoxShape(o) && (
             <>
               <Row label="Fill">
                 <ColorInput value={o.fill} onChange={(v) => set({ fill: v })} />
@@ -150,15 +151,17 @@ export function PropertiesPanel() {
         <Row label="Y">
           <NumberInput value={round(o.y)} step={1} onChange={(v) => set({ y: v })} />
         </Row>
-        <Row label="W">
-          <NumberInput
-            value={round(o.width)}
-            min={1}
-            step={1}
-            onChange={(v) => set({ width: Math.max(1, v) })}
-          />
-        </Row>
-        {!isText(o) && (
+        {!isLine(o) && (
+          <Row label="W">
+            <NumberInput
+              value={round(o.width)}
+              min={1}
+              step={1}
+              onChange={(v) => set({ width: Math.max(1, v) })}
+            />
+          </Row>
+        )}
+        {!isText(o) && !isLine(o) && (
           <Row label="H">
             <NumberInput
               value={round(o.height)}
@@ -170,6 +173,16 @@ export function PropertiesPanel() {
         )}
         {isText(o) && (
           <div className="text-xs text-slate-400">Height follows the text.</div>
+        )}
+        {isLine(o) && (
+          <>
+            <Row label="Length">
+              <span className="w-24 text-right text-sm tabular-nums text-slate-600">
+                {round(lineLength(o))}
+              </span>
+            </Row>
+            <div className="text-xs text-slate-400">Drag either end point to reshape.</div>
+          </>
         )}
       </Section>
 
