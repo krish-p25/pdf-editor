@@ -2,7 +2,15 @@ import { PDFDocument, degrees, rgb, type PDFFont, type PDFPage, type RGB } from 
 import fontkit from '@cantoo/fontkit';
 import { layoutText, lineX, variantOf, type FontMetrics, type FontVariant } from './fontMetrics';
 import { rectToPdf } from '../geometry/coords';
-import { isText, type Doc, type ShapeObject, type TextObject } from '../model/types';
+import { arrowHead } from '../geometry/lines';
+import {
+  isLine,
+  isText,
+  type BoxShapeObject,
+  type Doc,
+  type LineShapeObject,
+  type TextObject,
+} from '../model/types';
 
 export type FontSet = Record<FontVariant, FontMetrics>;
 
@@ -47,7 +55,60 @@ function drawTextObject(
   });
 }
 
-function drawShapeObject(page: PDFPage, o: ShapeObject, pageHeight: number): void {
+/**
+ * Draw a line or arrow between its two stored endpoints.
+ *
+ * Endpoints are relative to the object's box and measured y-down, so each is
+ * flipped into PDF user space individually. Going through the bounding box
+ * would lose the direction, which is the whole point of storing endpoints.
+ */
+function drawLineObject(page: PDFPage, o: LineShapeObject, pageHeight: number): void {
+  const stroke = hexToRgb(o.stroke);
+  const toPdf = (rx: number, ry: number) => ({
+    x: o.x + rx,
+    y: pageHeight - (o.y + ry),
+  });
+
+  const start = toPdf(o.x1, o.y1);
+  const end = toPdf(o.x2, o.y2);
+
+  if (o.kind === 'line') {
+    page.drawLine({
+      start,
+      end,
+      color: stroke,
+      thickness: o.strokeWidth,
+      opacity: o.strokeOpacity,
+    });
+    return;
+  }
+
+  const head = arrowHead(start, end, o.arrowHeadSize ?? Math.max(6, o.strokeWidth * 3));
+
+  page.drawLine({
+    start,
+    end: head.shaftEnd,
+    color: stroke,
+    thickness: o.strokeWidth,
+    opacity: o.strokeOpacity,
+  });
+
+  // drawSvgPath uses a y-down space anchored at x/y, so negate y and anchor
+  // at the origin to draw in absolute user-space coordinates.
+  const d =
+    `M ${head.tip.x} ${-head.tip.y} ` +
+    `L ${head.left.x} ${-head.left.y} ` +
+    `L ${head.right.x} ${-head.right.y} Z`;
+  page.drawSvgPath(d, {
+    x: 0,
+    y: 0,
+    color: stroke,
+    opacity: o.strokeOpacity,
+    borderWidth: 0,
+  });
+}
+
+function drawBoxShape(page: PDFPage, o: BoxShapeObject, pageHeight: number): void {
   const r = rectToPdf(o, pageHeight);
   const fill = hexToRgb(o.fill);
   const stroke = hexToRgb(o.stroke);
@@ -98,56 +159,6 @@ function drawShapeObject(page: PDFPage, o: ShapeObject, pageHeight: number): voi
       return;
     }
 
-    case 'line':
-      // Drawn along the box diagonal, bottom-left to top-right, matching the
-      // SVG preview.
-      page.drawLine({
-        start: { x: r.x, y: r.y },
-        end: { x: r.x + r.width, y: r.y + r.height },
-        color: stroke,
-        thickness: o.strokeWidth,
-        opacity: o.strokeOpacity,
-      });
-      return;
-
-    case 'arrow': {
-      const head = o.arrowHeadSize ?? Math.max(6, o.strokeWidth * 3);
-      const sx = r.x;
-      const sy = r.y;
-      const ex = r.x + r.width;
-      const ey = r.y + r.height;
-      const angle = Math.atan2(ey - sy, ex - sx);
-
-      // Stop the shaft at the base of the head so a thick stroke does not
-      // poke through the tip.
-      const bx = ex - Math.cos(angle) * head;
-      const by = ey - Math.sin(angle) * head;
-
-      page.drawLine({
-        start: { x: sx, y: sy },
-        end: { x: bx, y: by },
-        color: stroke,
-        thickness: o.strokeWidth,
-        opacity: o.strokeOpacity,
-      });
-
-      const spread = Math.PI / 7;
-      const p1x = ex - Math.cos(angle - spread) * head;
-      const p1y = ey - Math.sin(angle - spread) * head;
-      const p2x = ex - Math.cos(angle + spread) * head;
-      const p2y = ey - Math.sin(angle + spread) * head;
-
-      // drawSvgPath is y-down, so negate y and anchor at the origin.
-      const d = `M ${ex} ${-ey} L ${p1x} ${-p1y} L ${p2x} ${-p2y} Z`;
-      page.drawSvgPath(d, {
-        x: 0,
-        y: 0,
-        color: stroke,
-        opacity: o.strokeOpacity,
-        borderWidth: 0,
-      });
-      return;
-    }
   }
 }
 
@@ -195,8 +206,10 @@ export async function exportPdf(doc: Doc, fonts: FontSet): Promise<Uint8Array> {
         const variant = variantOf(o.bold, o.italic);
         const font = embedded[variant];
         if (font) drawTextObject(pdfPage, o, fonts[variant], font, modelPage.height);
+      } else if (isLine(o)) {
+        drawLineObject(pdfPage, o, modelPage.height);
       } else {
-        drawShapeObject(pdfPage, o, modelPage.height);
+        drawBoxShape(pdfPage, o, modelPage.height);
       }
     }
   }
