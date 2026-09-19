@@ -1,3 +1,4 @@
+import { migrateDoc } from './migrate';
 import type { Doc, EditorObject, ObjectId, Page } from './types';
 
 export const BACKUP_VERSION = 1;
@@ -99,12 +100,13 @@ export function parseBackup(json: string): Doc {
     throw new BackupError('The PDF data in that backup could not be decoded.');
   }
 
-  return {
+  // A backup may predate a schema change, so upgrade it on the way in.
+  return migrateDoc({
     fileName: typeof raw.fileName === 'string' ? raw.fileName : 'restored.pdf',
     sourceBytes,
     pages: raw.pages as Page[],
     objects: raw.objects as Record<ObjectId, EditorObject>,
-  };
+  });
 }
 
 /** Filename for a downloaded backup, e.g. "report-2026-09-18.pdfedit.json". */
