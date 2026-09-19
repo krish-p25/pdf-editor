@@ -36,8 +36,11 @@ const shapeObject: ShapeObject = {
   y: 20,
   width: 80,
   height: 60,
-  fill: 'none',
-  fillOpacity: 1,
+  // Drawn bottom-left to top-right, a direction the old box model could store.
+  x1: 0,
+  y1: 60,
+  x2: 80,
+  y2: 0,
   stroke: '#1d4ed8',
   strokeWidth: 2,
   strokeOpacity: 0.8,
