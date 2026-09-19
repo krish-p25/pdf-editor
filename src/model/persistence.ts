@@ -1,4 +1,5 @@
 import { openDB, type IDBPDatabase } from 'idb';
+import { migrateDoc } from './migrate';
 import type { Doc, EditorObject, ObjectId, Page } from './types';
 
 const DB_NAME = 'pdf-editor';
@@ -61,12 +62,13 @@ export async function loadSession(): Promise<Doc | null> {
     const handle = await db();
     const s = (await handle.get(STORE, KEY)) as StoredSession | undefined;
     if (!s) return null;
-    return {
+    // Sessions saved before a schema change are upgraded on the way in.
+    return migrateDoc({
       fileName: s.fileName,
       sourceBytes: new Uint8Array(s.sourceBytes),
       pages: s.pages,
       objects: s.objects,
-    };
+    });
   } catch {
     available = false;
     return null;
