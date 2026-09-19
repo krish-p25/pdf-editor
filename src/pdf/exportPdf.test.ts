@@ -4,7 +4,7 @@ import { PDFDocument } from '@cantoo/pdf-lib';
 import { exportPdf, hexToRgb, type FontSet } from './exportPdf';
 import { createMetrics, layoutText, lineX } from './fontMetrics';
 import { drawnTextOnPage } from './contentStream';
-import type { Doc, Page, ShapeObject, TextObject } from '../model/types';
+import type { Doc, Page, TextObject } from '../model/types';
 
 let source: Uint8Array;
 let fonts: FontSet;
@@ -122,15 +122,15 @@ describe('object drawing', () => {
     expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
   });
 
-  it('draws every shape kind without throwing', async () => {
-    const kinds = ['rect', 'ellipse', 'triangle', 'line', 'arrow'] as const;
+  it('draws every box shape without throwing', async () => {
+    const kinds = ['rect', 'ellipse', 'triangle'] as const;
     const objects: Doc['objects'] = {};
     const ids: string[] = [];
 
     kinds.forEach((kind, i) => {
       const id = `s${i}`;
       ids.push(id);
-      const shape: ShapeObject = {
+      objects[id] = {
         id,
         pageId: 'a',
         kind,
@@ -144,9 +144,47 @@ describe('object drawing', () => {
         strokeWidth: 2,
         strokeOpacity: 1,
         cornerRadius: 4,
+      };
+    });
+
+    const out = await exportPdf(doc([page('a', 0, ids)], objects), fonts);
+    expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
+  });
+
+  it('draws lines and arrows in every direction without throwing', async () => {
+    // All four diagonals plus horizontal and vertical: the box model could
+    // only ever represent one of these.
+    const directions: [number, number, number, number][] = [
+      [0, 0, 60, 40],
+      [60, 0, 0, 40],
+      [0, 40, 60, 0],
+      [60, 40, 0, 0],
+      [0, 20, 60, 20],
+      [30, 0, 30, 40],
+    ];
+    const objects: Doc['objects'] = {};
+    const ids: string[] = [];
+
+    directions.forEach(([x1, y1, x2, y2], i) => {
+      const id = `l${i}`;
+      ids.push(id);
+      objects[id] = {
+        id,
+        pageId: 'a',
+        kind: i % 2 === 0 ? 'arrow' : 'line',
+        x: 20,
+        y: 100 + i * 60,
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+        x1,
+        y1,
+        x2,
+        y2,
+        stroke: '#000000',
+        strokeWidth: 2,
+        strokeOpacity: 1,
         arrowHeadSize: 8,
       };
-      objects[id] = shape;
     });
 
     const out = await exportPdf(doc([page('a', 0, ids)], objects), fonts);
