@@ -134,3 +134,62 @@ describe('editing is closed by anything that invalidates it', () => {
     expect(useStore.getState().editingObjectId).toBeNull();
   });
 });
+
+describe('adding a blank page', () => {
+  it('appends a page with no source index', () => {
+    useStore.getState().addBlankPage();
+    const pages = useStore.getState().doc!.pages;
+    expect(pages).toHaveLength(3);
+    expect(pages[2].sourceIndex).toBeNull();
+  });
+
+  it('matches the size of the last page', () => {
+    useStore.getState().addBlankPage();
+    const pages = useStore.getState().doc!.pages;
+    expect(pages[2].width).toBe(600);
+    expect(pages[2].height).toBe(800);
+  });
+
+  it('matches the VISIBLE size when the last page is rotated', () => {
+    // A page rotated 90 degrees is stored 600x800 but displays 800x600, so a
+    // new page beside it should be 800x600 to look the same size.
+    const lastId = useStore.getState().doc!.pages[1].id;
+    useStore.getState().rotatePage(lastId, 90);
+    useStore.getState().addBlankPage();
+
+    const added = useStore.getState().doc!.pages[2];
+    expect({ width: added.width, height: added.height }).toEqual({ width: 800, height: 600 });
+    expect(added.rotation).toBe(0);
+  });
+
+  it('starts with no objects on it', () => {
+    useStore.getState().addBlankPage();
+    expect(useStore.getState().doc!.pages[2].objectIds).toEqual([]);
+  });
+
+  it('makes the new page active so the user lands on it', () => {
+    useStore.getState().addBlankPage();
+    const pages = useStore.getState().doc!.pages;
+    expect(useStore.getState().activePageId).toBe(pages[2].id);
+  });
+
+  it('is undoable', () => {
+    useStore.getState().addBlankPage();
+    expect(useStore.getState().doc!.pages).toHaveLength(3);
+    useStore.getState().undo();
+    expect(useStore.getState().doc!.pages).toHaveLength(2);
+  });
+
+  it('can be deleted like any other page', () => {
+    useStore.getState().addBlankPage();
+    const added = useStore.getState().doc!.pages[2];
+    useStore.getState().deletePage(added.id);
+    expect(useStore.getState().doc!.pages).toHaveLength(2);
+  });
+
+  it('does nothing when no document is open', () => {
+    useStore.getState().closeDoc();
+    useStore.getState().addBlankPage();
+    expect(useStore.getState().doc).toBeNull();
+  });
+});

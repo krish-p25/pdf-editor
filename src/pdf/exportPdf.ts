@@ -185,14 +185,21 @@ export async function exportPdf(doc: Doc, fonts: FontSet): Promise<Uint8Array> {
     embedded[v] = await out.embedFont(fonts[v].bytes, { subset: true });
   }
 
+  // Only pages that came from the upload are copied, so the copied array no
+  // longer lines up index-for-index with doc.pages and needs its own cursor.
   const copied = await out.copyPages(
     source,
-    doc.pages.map((p) => p.sourceIndex),
+    doc.pages.map((p) => p.sourceIndex).filter((i): i is number => i !== null),
   );
+  let nextCopied = 0;
 
   for (let i = 0; i < doc.pages.length; i++) {
     const modelPage = doc.pages[i];
-    const pdfPage = out.addPage(copied[i]);
+    // A blank page has no source to copy; it is created at its stored size.
+    const pdfPage =
+      modelPage.sourceIndex === null
+        ? out.addPage([modelPage.width, modelPage.height])
+        : out.addPage(copied[nextCopied++]);
 
     if (modelPage.rotation !== 0) {
       const base = pdfPage.getRotation().angle;

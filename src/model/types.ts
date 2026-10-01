@@ -16,7 +16,12 @@ export interface Rect {
  */
 export interface Page {
   id: PageId;
-  sourceIndex: number;
+  /**
+   * Index of this page in the uploaded PDF, or null for a blank page added in
+   * the editor. A blank page has no source to copy from, so it is created at
+   * its stored size on export rather than copied.
+   */
+  sourceIndex: number | null;
   /** User-applied rotation, added to the source page's own /Rotate at export. */
   rotation: Rotation;
   width: number;
@@ -96,6 +101,9 @@ export interface Doc {
   pages: Page[];
   objects: Record<ObjectId, EditorObject>;
 }
+
+/** A page added in the editor rather than copied from the uploaded PDF. */
+export const isBlankPage = (p: Page): boolean => p.sourceIndex === null;
 
 export const isText = (o: EditorObject): o is TextObject => o.kind === 'text';
 export const isShape = (o: EditorObject): o is ShapeObject => o.kind !== 'text';

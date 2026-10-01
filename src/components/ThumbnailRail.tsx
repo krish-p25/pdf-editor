@@ -26,6 +26,7 @@ export function ThumbnailRail({ proxy }: Props) {
   const activePageId = useStore((s) => s.activePageId);
   const setActivePage = useStore((s) => s.setActivePage);
   const reorderPages = useStore((s) => s.reorderPages);
+  const addBlankPage = useStore((s) => s.addBlankPage);
 
   // A small activation distance lets a plain click select without starting a
   // drag, while still making reordering feel immediate.
@@ -58,6 +59,15 @@ export function ThumbnailRail({ proxy }: Props) {
           ))}
         </SortableContext>
       </DndContext>
+
+      <button
+        type="button"
+        onClick={addBlankPage}
+        title="Add a blank page at the end, matching the last page's size"
+        className="mt-1 shrink-0 rounded-lg border-2 border-dashed border-edge py-3 text-sm text-slate-500 transition-colors hover:border-accent hover:text-accent"
+      >
+        + Add page
+      </button>
     </div>
   );
 }
@@ -87,8 +97,14 @@ function Thumbnail({ proxy, page, index, active, canDelete, onSelect }: ThumbPro
   // Thumbnails render lazily and the render cache keeps a long document from
   // stalling on load.
   useEffect(() => {
+    if (page.sourceIndex === null) {
+      setSrc(null);
+      return;
+    }
+
     let cancelled = false;
-    renderPage(proxy, page.sourceIndex, cssScale)
+    const sourceIndex = page.sourceIndex;
+    renderPage(proxy, sourceIndex, cssScale)
       .then((url) => {
         if (!cancelled) setSrc(url);
       })
@@ -116,6 +132,9 @@ function Thumbnail({ proxy, page, index, active, canDelete, onSelect }: ThumbPro
         }`}
       >
         <div className="flex aspect-[3/4] items-center justify-center overflow-hidden p-1">
+          {page.sourceIndex === null && (
+            <span className="text-xs italic text-slate-300">Blank</span>
+          )}
           {src && (
             <img
               src={src}

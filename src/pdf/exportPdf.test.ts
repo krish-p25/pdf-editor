@@ -93,6 +93,69 @@ describe('page operations', () => {
     expect(loaded.getPage(0).getRotation().angle).toBe(90);
   });
 
+  it('appends a blank page at its stored size', async () => {
+    const blank: Page = { ...page('new', 0), sourceIndex: null, width: 400, height: 500 };
+    const out = await exportPdf(doc([page('a', 0), blank]), fonts);
+    const loaded = await PDFDocument.load(out);
+
+    expect(loaded.getPageCount()).toBe(2);
+    expect(loaded.getPage(1).getSize()).toEqual({ width: 400, height: 500 });
+    // The copied page must be untouched by the blank one.
+    expect(loaded.getPage(0).getSize()).toEqual({ width: 600, height: 800 });
+  });
+
+  it('keeps copied pages aligned when a blank page sits between them', async () => {
+    // The copied array no longer lines up with doc.pages once a page is not
+    // copied, so this catches an off-by-one in the cursor.
+    const blank: Page = { ...page('new', 0), sourceIndex: null, width: 400, height: 500 };
+    const out = await exportPdf(doc([page('a', 0), blank, page('c', 2)]), fonts);
+    const loaded = await PDFDocument.load(out);
+
+    expect(loaded.getPageCount()).toBe(3);
+    expect(loaded.getPage(0).getSize()).toEqual({ width: 600, height: 800 });
+    expect(loaded.getPage(1).getSize()).toEqual({ width: 400, height: 500 });
+    expect(loaded.getPage(2).getSize()).toEqual({ width: 600, height: 800 });
+  });
+
+  it('exports a document made only of blank pages', async () => {
+    const blank = (id: string, w: number, h: number): Page => ({
+      ...page(id, 0),
+      sourceIndex: null,
+      width: w,
+      height: h,
+    });
+    const out = await exportPdf(doc([blank('b1', 300, 400), blank('b2', 500, 200)]), fonts);
+    const loaded = await PDFDocument.load(out);
+
+    expect(loaded.getPageCount()).toBe(2);
+    expect(loaded.getPage(0).getSize()).toEqual({ width: 300, height: 400 });
+    expect(loaded.getPage(1).getSize()).toEqual({ width: 500, height: 200 });
+  });
+
+  it('applies rotation to a blank page', async () => {
+    const blank: Page = {
+      ...page('new', 0),
+      sourceIndex: null,
+      width: 400,
+      height: 500,
+      rotation: 90,
+    };
+    const out = await exportPdf(doc([blank]), fonts);
+    expect((await PDFDocument.load(out)).getPage(0).getRotation().angle).toBe(90);
+  });
+
+  it('draws objects onto a blank page', async () => {
+    const blank: Page = {
+      ...page('a', 0, ['t1']),
+      sourceIndex: null,
+      width: 400,
+      height: 500,
+    };
+    const out = await exportPdf(doc([blank], { t1: text() }), fonts);
+    const drawn = (await drawnTextOnPage(out, 0)).filter((d) => d.font.startsWith('Inter'));
+    expect(drawn).toHaveLength(1);
+  });
+
   it('leaves rotation at zero when the user has not rotated', async () => {
     const out = await exportPdf(doc([page('a', 0)]), fonts);
     expect((await PDFDocument.load(out)).getPage(0).getRotation().angle).toBe(0);
