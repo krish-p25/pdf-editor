@@ -4,6 +4,34 @@ const cache = new Map<string, string>();
 const inflight = new Map<string, Promise<string>>();
 
 /**
+ * Budget for cached page bitmaps, in characters of base64 (roughly bytes).
+ *
+ * Counting entries is the wrong bound now that supersampling is on: a
+ * thumbnail and an A4 page at 400% zoom differ by three orders of magnitude,
+ * so a fixed entry count either thrashes thumbnails or holds hundreds of
+ * megabytes of full-page rasters.
+ */
+const CACHE_BUDGET_CHARS = 96 * 1024 * 1024;
+
+let cachedChars = 0;
+
+/** Insert a render, evicting oldest-first until the cache is within budget. */
+function remember(k: string, url: string): void {
+  const existing = cache.get(k);
+  if (existing !== undefined) cachedChars -= existing.length;
+
+  cache.set(k, url);
+  cachedChars += url.length;
+
+  // Map iterates in insertion order, so the first key is the oldest.
+  while (cachedChars > CACHE_BUDGET_CHARS && cache.size > 1) {
+    const oldest = cache.keys().next().value as string;
+    cachedChars -= cache.get(oldest)?.length ?? 0;
+    cache.delete(oldest);
+  }
+}
+
+/**
  * Largest canvas edge we will rasterise to.
  *
  * The cap must be on pixel dimensions rather than on the scale factor: an A4
@@ -12,6 +40,20 @@ const inflight = new Map<string, Promise<string>>();
  * slowly.
  */
 const MAX_CANVAS_EDGE = 4096;
+
+/**
+ * Lowest multiple of the display scale we will ever rasterise at.
+ *
+ * A PDF point is 1px at scale 1, so rendering a page at its CSS size means
+ * rasterising at 72 DPI — ten-point text becomes ten pixels tall and looks
+ * soft next to the same file in a PDF viewer, which re-renders the vectors at
+ * device resolution for whatever zoom it is showing.
+ *
+ * Rendering at 2x and letting the browser downsample gives 144 DPI at 100%
+ * zoom, and supersampling antialiases thin strokes better than rasterising
+ * directly at 1x does.
+ */
+const MIN_RENDER_SCALE = 2;
 
 /** Physical pixels per CSS pixel, clamped so a 3x phone does not blow the cap. */
 export function devicePixelScale(): number {
@@ -22,9 +64,9 @@ export function devicePixelScale(): number {
 /**
  * The scale to rasterise at, given the scale the page is displayed at.
  *
- * Multiplying by the device pixel ratio is what keeps the page sharp: a
- * bitmap rendered at the CSS scale alone is stretched across `dpr` times as
- * many physical pixels and looks pixelated on any HiDPI screen.
+ * Two floors apply. The device pixel ratio stops the bitmap being stretched
+ * across more physical pixels than it has, and MIN_RENDER_SCALE stops a
+ * dpr-1 display being served a 72 DPI raster of what is really vector art.
  *
  * The result is then clamped so neither canvas edge exceeds MAX_CANVAS_EDGE.
  * The clamp must be applied to pixel dimensions rather than to the scale
@@ -36,7 +78,7 @@ export function rasterScale(
   pageWidth: number,
   pageHeight: number,
 ): number {
-  const desired = cssScale * dpr;
+  const desired = cssScale * Math.max(dpr, MIN_RENDER_SCALE);
   return Math.min(desired, MAX_CANVAS_EDGE / pageWidth, MAX_CANVAS_EDGE / pageHeight);
 }
 
@@ -91,10 +133,7 @@ export function renderPage(
       // around glyphs, which is exactly what we are trying to avoid.
       const url = canvas.toDataURL('image/png');
 
-      // Bound the cache: these data URLs are large and a long session at many
-      // zoom levels would otherwise grow it without limit.
-      if (cache.size > 24) cache.clear();
-      cache.set(k, url);
+      remember(k, url);
       return url;
     } finally {
       inflight.delete(k);
@@ -108,4 +147,5 @@ export function renderPage(
 export function clearRenderCache(): void {
   cache.clear();
   inflight.clear();
+  cachedChars = 0;
 }
