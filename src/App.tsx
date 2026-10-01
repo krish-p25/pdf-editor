@@ -6,6 +6,7 @@ import { exportPdf, type FontSet } from './pdf/exportPdf';
 import { primeFont } from './pdf/fontMetrics';
 import { clearRenderCache } from './pdf/renderPage';
 import { loadImageFile, ImageLoadError } from './pdf/imageFile';
+import { appendPdf, PdfImportError } from './pdf/appendPdf';
 import {
   createAutosave,
   deleteDocument,
@@ -58,6 +59,7 @@ export default function App() {
   const setSnapEnabled = useStore((s) => s.setSnapEnabled);
   const closeDoc = useStore((s) => s.closeDoc);
   const addImage = useStore((s) => s.addImage);
+  const appendImportedPages = useStore((s) => s.appendImportedPages);
 
   const [proxy, setProxy] = useState<PDFDocumentProxy | null>(null);
   const [busy, setBusy] = useState(false);
@@ -196,6 +198,51 @@ export default function App() {
     [addImage, setError],
   );
 
+  const onImportPdf = useCallback(
+    async (file: File) => {
+      const current = useStore.getState().doc;
+      if (!current) return;
+
+      setBusy(true);
+      setError(null);
+      try {
+        const incoming = new Uint8Array(await file.arrayBuffer());
+        const merged = await appendPdf(current.sourceBytes, incoming);
+
+        // Reopen against the merged bytes so page geometry comes from pdf.js,
+        // exactly as it does on first load — pdf-lib's getSize() ignores
+        // /Rotate, which would give swapped dimensions for rotated pages.
+        const opened = await openBytes(merged.bytes, current.fileName);
+
+        const added = [];
+        for (let i = merged.originalPageCount; i < merged.originalPageCount + merged.addedPageCount; i++) {
+          const pdfPage = await opened.proxy.getPage(i + 1);
+          const vp = pdfPage.getViewport({ scale: 1 });
+          added.push({
+            sourceIndex: i,
+            rotation: 0 as const,
+            width: vp.width,
+            height: vp.height,
+            objectIds: [],
+          });
+        }
+
+        // The render cache is keyed by page index with no document identity,
+        // and the bytes behind those indices have just changed.
+        clearRenderCache();
+        setProxy(opened.proxy);
+        appendImportedPages(merged.bytes, added);
+      } catch (e) {
+        setError(
+          e instanceof PdfImportError ? e.message : 'That PDF could not be imported.',
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [appendImportedPages, setError],
+  );
+
   const onExport = useCallback(async () => {
     const current = useStore.getState().doc;
     if (!current) return;
@@ -284,7 +331,7 @@ export default function App() {
       )}
 
       <div className="flex min-h-0 flex-1">
-        <ThumbnailRail proxy={proxy} />
+        <ThumbnailRail proxy={proxy} onImportPdf={onImportPdf} />
         <main className="flex-1 overflow-auto bg-slate-200 p-8">
           <div className="flex justify-center">
             {activePage && (
