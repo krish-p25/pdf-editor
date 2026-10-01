@@ -35,6 +35,7 @@ const shapeObject: ShapeObject = {
 };
 
 const doc = (): Doc => ({
+  id: 'doc_test',
   fileName: 'test.pdf',
   sourceBytes: new Uint8Array([1, 2, 3]),
   pages: [

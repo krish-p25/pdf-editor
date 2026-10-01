@@ -48,6 +48,7 @@ const shapeObject: ShapeObject = {
 };
 
 const doc: Doc = {
+  id: 'doc_test',
   fileName: 'report.pdf',
   sourceBytes,
   pages: [

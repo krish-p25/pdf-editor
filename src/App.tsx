@@ -5,8 +5,14 @@ import { loadDocument, openBytes, PdfLoadError } from './pdf/loadDocument';
 import { exportPdf, type FontSet } from './pdf/exportPdf';
 import { primeFont } from './pdf/fontMetrics';
 import { clearRenderCache } from './pdf/renderPage';
-import { clearSession, createAutosave, loadSession } from './model/persistence';
-import { backupFileName, BackupError, parseBackup, serializeBackup } from './model/backup';
+import {
+  createAutosave,
+  deleteDocument,
+  listDocuments,
+  loadStoredDocument,
+  saveDocument,
+  type DocumentSummary,
+} from './model/persistence';
 import { useKeyboard } from './hooks/useKeyboard';
 import { DropZone } from './components/DropZone';
 import { Toolbar } from './components/Toolbar';
@@ -14,6 +20,32 @@ import { ThumbnailRail } from './components/ThumbnailRail';
 import { PageCanvas } from './components/PageCanvas';
 import { ObjectLayer } from './components/ObjectLayer';
 import { PropertiesPanel } from './components/PropertiesPanel';
+
+/**
+ * Which document was open when the page last unloaded.
+ *
+ * Kept in localStorage rather than IndexedDB: it is a single short string, it
+ * is read on the very first render before any async work, and losing it is
+ * harmless — the worst case is landing on the document list.
+ */
+const LAST_OPENED_KEY = 'pdf-editor:lastOpened';
+
+function readLastOpened(): string | null {
+  try {
+    return localStorage.getItem(LAST_OPENED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeLastOpened(id: string | null): void {
+  try {
+    if (id === null) localStorage.removeItem(LAST_OPENED_KEY);
+    else localStorage.setItem(LAST_OPENED_KEY, id);
+  } catch {
+    /* private mode or blocked storage: reopening is a convenience, not a need */
+  }
+}
 
 export default function App() {
   const doc = useStore((s) => s.doc);
@@ -23,11 +55,12 @@ export default function App() {
   const loadDoc = useStore((s) => s.loadDoc);
   const setError = useStore((s) => s.setError);
   const setSnapEnabled = useStore((s) => s.setSnapEnabled);
+  const closeDoc = useStore((s) => s.closeDoc);
 
   const [proxy, setProxy] = useState<PDFDocumentProxy | null>(null);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const autosave = useRef(createAutosave());
 
   useKeyboard();
@@ -48,22 +81,35 @@ export default function App() {
     };
   }, [setSnapEnabled]);
 
-  // Restore a previous session, if one survived.
+  const refreshDocuments = useCallback(async () => {
+    setDocuments(await listDocuments());
+  }, []);
+
+  // Reopen whatever was last being edited. An explicit Close clears the
+  // pointer, so closing to the list and reloading keeps you on the list
+  // rather than dragging you back into a document you just left.
   useEffect(() => {
     void (async () => {
-      const restored = await loadSession();
-      if (!restored || useStore.getState().doc) return;
+      await refreshDocuments();
+
+      const lastId = readLastOpened();
+      if (!lastId || useStore.getState().doc) return;
+
+      const stored = await loadStoredDocument(lastId);
+      if (!stored) {
+        writeLastOpened(null);
+        return;
+      }
       try {
-        const opened = await openBytes(restored.sourceBytes, restored.fileName);
+        const opened = await openBytes(stored.sourceBytes, stored.fileName);
         setProxy(opened.proxy);
-        // Keep the restored pages and objects, not the freshly-derived ones.
-        loadDoc(restored);
+        loadDoc(stored);
         void primeFont('regular');
       } catch {
-        await clearSession();
+        writeLastOpened(null);
       }
     })();
-  }, [loadDoc]);
+  }, [loadDoc, refreshDocuments]);
 
   useEffect(() => {
     if (doc) autosave.current(doc);
@@ -86,6 +132,7 @@ export default function App() {
         const loaded = await loadDocument(file);
         setProxy(loaded.proxy);
         loadDoc(loaded.doc);
+        writeLastOpened(loaded.doc.id);
         void primeFont('regular');
       } catch (e) {
         setError(
@@ -96,6 +143,43 @@ export default function App() {
       }
     },
     [loadDoc, setError],
+  );
+
+  const onOpenDocument = useCallback(
+    async (id: string) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const stored = await loadStoredDocument(id);
+        if (!stored) {
+          setError('That document could no longer be found.');
+          await refreshDocuments();
+          return;
+        }
+        // The render cache is keyed by page index and scale with no document
+        // identity, so it must be dropped when switching documents.
+        clearRenderCache();
+        const opened = await openBytes(stored.sourceBytes, stored.fileName);
+        setProxy(opened.proxy);
+        loadDoc(stored);
+        writeLastOpened(stored.id);
+        void primeFont('regular');
+      } catch (e) {
+        setError(e instanceof PdfLoadError ? e.message : 'That document could not be opened.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [loadDoc, refreshDocuments, setError],
+  );
+
+  const onDeleteDocument = useCallback(
+    async (id: string) => {
+      await deleteDocument(id);
+      if (readLastOpened() === id) writeLastOpened(null);
+      await refreshDocuments();
+    },
+    [refreshDocuments],
   );
 
   const onExport = useCallback(async () => {
@@ -127,50 +211,26 @@ export default function App() {
     }
   }, [setError]);
 
-  const onSaveBackup = useCallback(() => {
+  const onCloseDoc = useCallback(() => {
     const current = useStore.getState().doc;
-    if (!current) return;
-    try {
-      const blob = new Blob([serializeBackup(current)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = backupFileName(current.fileName);
-      a.click();
-      URL.revokeObjectURL(url);
-      setNotice('Backup saved. Keep it somewhere safe — it contains the PDF and all your edits.');
-    } catch (e) {
-      setError(e instanceof Error ? `Backup failed: ${e.message}` : 'Backup failed.');
-    }
-  }, [setError]);
 
-  const onLoadBackup = useCallback(
-    async (file: File) => {
-      setBusy(true);
-      setError(null);
-      try {
-        const restored = parseBackup(await file.text());
-        // Re-open the original bytes so pdf.js can rasterise the pages again.
-        const opened = await openBytes(restored.sourceBytes, restored.fileName);
-        clearRenderCache();
-        setProxy(opened.proxy);
-        loadDoc(restored);
-        void primeFont('regular');
-        setNotice(`Restored ${restored.pages.length} page(s) from backup.`);
-      } catch (e) {
-        setError(
-          e instanceof BackupError
-            ? e.message
-            : e instanceof PdfLoadError
-              ? e.message
-              : 'That backup could not be restored.',
-        );
-      } finally {
-        setBusy(false);
-      }
-    },
-    [loadDoc, setError],
-  );
+    // Flush instead of dropping: closing is no longer destructive, so the
+    // latest edits must reach storage before the editor lets go of them.
+    autosave.current.cancel();
+
+    void (async () => {
+      if (current) await saveDocument(current);
+      writeLastOpened(null);
+      await refreshDocuments();
+    })();
+
+    // The render cache is keyed by page index and scale with no document
+    // identity, so it has to go or the next PDF shows this one's pages.
+    clearRenderCache();
+
+    setProxy(null);
+    closeDoc();
+  }, [closeDoc, refreshDocuments]);
 
   const activePage = useMemo(
     () => doc?.pages.find((p) => p.id === activePageId) ?? null,
@@ -181,32 +241,24 @@ export default function App() {
     return busy ? (
       <div className="flex h-full items-center justify-center text-slate-500">Opening…</div>
     ) : (
-      <DropZone onFile={onFile} error={error} />
+      <DropZone
+        onFile={onFile}
+        error={error}
+        documents={documents}
+        onOpenDocument={onOpenDocument}
+        onDeleteDocument={onDeleteDocument}
+      />
     );
   }
 
   return (
     <div className="flex h-full flex-col">
-      <Toolbar
-        onExport={onExport}
-        exporting={exporting}
-        onSaveBackup={onSaveBackup}
-        onLoadBackup={onLoadBackup}
-      />
+      <Toolbar onExport={onExport} exporting={exporting} onCloseDoc={onCloseDoc} />
 
       {error && (
         <div className="flex shrink-0 items-center justify-between border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
           <span>{error}</span>
           <button type="button" onClick={() => setError(null)} aria-label="Dismiss">
-            ✕
-          </button>
-        </div>
-      )}
-
-      {notice && !error && (
-        <div className="flex shrink-0 items-center justify-between border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
-          <span>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss">
             ✕
           </button>
         </div>

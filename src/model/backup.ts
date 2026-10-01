@@ -1,4 +1,5 @@
 import { migrateDoc } from './migrate';
+import { newDocumentId } from './persistence';
 import type { Doc, EditorObject, ObjectId, Page } from './types';
 
 export const BACKUP_VERSION = 1;
@@ -102,6 +103,8 @@ export function parseBackup(json: string): Doc {
 
   // A backup may predate a schema change, so upgrade it on the way in.
   return migrateDoc({
+    // A restored backup is a new document in the list, not an overwrite.
+    id: newDocumentId(),
     fileName: typeof raw.fileName === 'string' ? raw.fileName : 'restored.pdf',
     sourceBytes,
     pages: raw.pages as Page[],

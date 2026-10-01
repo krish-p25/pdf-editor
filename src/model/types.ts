@@ -95,6 +95,8 @@ export type EditorObject = TextObject | ShapeObject;
 
 /** The whole working document. `sourceBytes` is never mutated. */
 export interface Doc {
+  /** Storage key. Generated per upload, so the same file can be opened twice. */
+  id: string;
   fileName: string;
   sourceBytes: Uint8Array;
   /** Array order IS the export order. */

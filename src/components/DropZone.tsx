@@ -1,11 +1,22 @@
 import { useCallback, useRef, useState } from 'react';
+import { DocumentList } from './DocumentList';
+import type { DocumentSummary } from '../model/persistence';
 
 interface Props {
   onFile(file: File): void;
   error: string | null;
+  documents: DocumentSummary[];
+  onOpenDocument(id: string): void;
+  onDeleteDocument(id: string): void;
 }
 
-export function DropZone({ onFile, error }: Props) {
+export function DropZone({
+  onFile,
+  error,
+  documents,
+  onOpenDocument,
+  onDeleteDocument,
+}: Props) {
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
@@ -18,7 +29,7 @@ export function DropZone({ onFile, error }: Props) {
   );
 
   return (
-    <div className="flex h-full items-center justify-center bg-panel p-8">
+    <div className="flex h-full flex-col items-center overflow-y-auto bg-panel p-8 pt-16">
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -31,7 +42,7 @@ export function DropZone({ onFile, error }: Props) {
           handle(e.dataTransfer.files);
         }}
         onClick={() => input.current?.click()}
-        className={`flex w-full max-w-xl cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed p-16 text-center transition-colors ${
+        className={`flex w-full max-w-xl shrink-0 cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed p-12 text-center transition-colors ${
           over ? 'border-accent bg-blue-50' : 'border-edge bg-surface hover:border-accent'
         }`}
       >
@@ -49,6 +60,12 @@ export function DropZone({ onFile, error }: Props) {
           onChange={(e) => handle(e.target.files)}
         />
       </div>
+
+      <DocumentList
+        documents={documents}
+        onOpen={onOpenDocument}
+        onDelete={onDeleteDocument}
+      />
     </div>
   );
 }

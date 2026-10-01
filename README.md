@@ -77,7 +77,7 @@ This is an **overlay editor** — it adds content on top of your pages. It does 
 
 Edits are written to your browser's IndexedDB as you go, so closing the tab by accident doesn't lose an hour's work — reopen the page and it comes back.
 
-For anything you care about, use **Save backup**. It downloads a single `.json` file containing the original PDF *and* every edit, which **Restore** loads back on any machine. That file is the portable, re-editable version of your work; the exported PDF is the finished article.
+That autosave is per-browser, though: it does not follow you to another machine and it does not survive clearing site data. For anything you need to keep, export the PDF.
 
 ---
 
