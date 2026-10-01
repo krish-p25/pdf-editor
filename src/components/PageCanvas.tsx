@@ -25,9 +25,18 @@ export function PageCanvas({ proxy, page, zoom, children }: Props) {
   // Pass the CSS scale the page is displayed at; renderPage multiplies by the
   // device pixel ratio itself so the raster matches physical pixels exactly.
   useEffect(() => {
+    // A blank page has no source to rasterise; the container's white
+    // background is the page.
+    if (page.sourceIndex === null) {
+      setSrc(null);
+      setFailed(false);
+      return;
+    }
+
     let cancelled = false;
     setFailed(false);
-    renderPage(proxy, page.sourceIndex, zoom)
+    const sourceIndex = page.sourceIndex;
+    renderPage(proxy, sourceIndex, zoom)
       .then((url) => {
         if (!cancelled) setSrc(url);
       })

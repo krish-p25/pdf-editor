@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { displaySize } from '../geometry/coords';
 import { createHistory } from './history';
 import type { Doc, EditorObject, ObjectId, Page, PageId, Rotation, ToolId } from './types';
 
@@ -57,6 +58,8 @@ interface State {
   sendToBack(id: ObjectId): void;
 
   reorderPages(from: number, to: number): void;
+  /** Append a blank page matching the last page's visible size. */
+  addBlankPage(): void;
   deletePage(id: PageId): void;
   rotatePage(id: PageId, delta: 90 | -90): void;
 
@@ -228,6 +231,34 @@ export const useStore = create<State>((set, get) => {
         pages.splice(to, 0, moved);
         doc.pages = pages;
       });
+    },
+
+    addBlankPage() {
+      const { doc } = get();
+      const last = doc?.pages[doc.pages.length - 1];
+      if (!last) return;
+
+      // Match what the last page LOOKS like, not its stored size. A page
+      // rotated 90 degrees is stored 595x842 but displays 842x595, and the
+      // new page should sit beside it at the same visible size.
+      const visible = displaySize(last);
+      const id = nextId('page');
+
+      mutate((d) => {
+        d.pages = [
+          ...d.pages,
+          {
+            id,
+            sourceIndex: null,
+            rotation: 0,
+            width: visible.width,
+            height: visible.height,
+            objectIds: [],
+          },
+        ];
+      });
+
+      set({ activePageId: id, selection: [], editingObjectId: null });
     },
 
     deletePage(id) {
