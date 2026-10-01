@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { displaySize } from '../geometry/coords';
+import { fitWithin, FULL_CROP } from '../geometry/images';
 import { createHistory } from './history';
 import type { Doc, EditorObject, ObjectId, Page, PageId, Rotation, ToolId } from './types';
 
@@ -33,6 +34,9 @@ interface State {
    */
   editSelectAll: boolean;
 
+  /** Image currently in crop mode, if any. */
+  croppingObjectId: ObjectId | null;
+
   loadDoc(doc: Doc): void;
   closeDoc(): void;
   setTool(t: ToolId): void;
@@ -48,7 +52,12 @@ interface State {
   beginEditing(id: ObjectId, selectAll?: boolean): void;
   endEditing(): void;
 
+  /** Enter or leave crop mode for an image. */
+  setCropping(id: ObjectId | null): void;
+
   addObject(o: EditorObject): void;
+  /** Place an image centred on the active page, scaled to fit. */
+  addImage(img: { src: string; naturalWidth: number; naturalHeight: number }): void;
   updateObject(id: ObjectId, patch: Partial<EditorObject>): void;
   /** Live drag updates; not recorded until commitInteraction(). */
   updateObjectTransient(id: ObjectId, patch: Partial<EditorObject>): void;
@@ -122,6 +131,7 @@ export const useStore = create<State>((set, get) => {
     error: null,
     editingObjectId: null,
     editSelectAll: false,
+    croppingObjectId: null,
 
     loadDoc(doc) {
       history.reset(snapshot(doc));
@@ -134,6 +144,7 @@ export const useStore = create<State>((set, get) => {
         tool: 'select',
         editingObjectId: null,
         editSelectAll: false,
+        croppingObjectId: null,
       });
     },
 
@@ -145,19 +156,25 @@ export const useStore = create<State>((set, get) => {
         selection: [],
         error: null,
         editingObjectId: null,
+        croppingObjectId: null,
       });
     },
 
     setTool: (tool) =>
-      set(tool === 'select' ? { tool } : { tool, editingObjectId: null }),
+      set(
+        tool === 'select'
+          ? { tool }
+          : { tool, editingObjectId: null, croppingObjectId: null },
+      ),
     setActivePage: (activePageId) =>
-      set({ activePageId, selection: [], editingObjectId: null }),
+      set({ activePageId, selection: [], editingObjectId: null, croppingObjectId: null }),
     setZoom: (zoom) => set({ zoom: Math.min(4, Math.max(0.25, Math.round(zoom * 100) / 100)) }),
     setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
     setError: (error) => set({ error }),
 
     select: (selection) => set({ selection }),
-    clearSelection: () => set({ selection: [], editingObjectId: null }),
+    clearSelection: () =>
+      set({ selection: [], editingObjectId: null, croppingObjectId: null }),
 
     beginEditing(id, selectAll = false) {
       const o = get().doc?.objects[id];
@@ -167,6 +184,16 @@ export const useStore = create<State>((set, get) => {
 
     endEditing: () => set({ editingObjectId: null, editSelectAll: false }),
 
+    setCropping(id) {
+      if (id === null) {
+        set({ croppingObjectId: null });
+        return;
+      }
+      const o = get().doc?.objects[id];
+      if (!o || o.kind !== 'image') return;
+      set({ croppingObjectId: id, selection: [id], tool: 'select' });
+    },
+
     addObject(o) {
       mutate((doc) => {
         doc.objects[o.id] = o;
@@ -174,6 +201,33 @@ export const useStore = create<State>((set, get) => {
         if (page) page.objectIds = [...page.objectIds, o.id];
       });
       set({ selection: [o.id] });
+    },
+
+    addImage(img) {
+      const { doc, activePageId } = get();
+      const page = doc?.pages.find((p) => p.id === activePageId);
+      if (!page) return;
+
+      // Half the page is a size that reads as deliberate: big enough to see,
+      // small enough to position without immediately resizing it.
+      const size = fitWithin(img.naturalWidth, img.naturalHeight, page.width / 2, page.height / 2);
+      const id = nextId('obj');
+
+      get().addObject({
+        id,
+        pageId: page.id,
+        kind: 'image',
+        x: (page.width - size.width) / 2,
+        y: (page.height - size.height) / 2,
+        width: size.width,
+        height: size.height,
+        src: img.src,
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+        crop: { ...FULL_CROP },
+        rotation: 0,
+        opacity: 1,
+      });
     },
 
     updateObject(id, patch) {
@@ -205,7 +259,7 @@ export const useStore = create<State>((set, get) => {
           if (page) page.objectIds = page.objectIds.filter((x) => x !== id);
         }
       });
-      set({ selection: [], editingObjectId: null });
+      set({ selection: [], editingObjectId: null, croppingObjectId: null });
     },
 
     bringToFront(id) {

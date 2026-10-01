@@ -91,7 +91,34 @@ export interface LineShapeObject extends BaseObject {
 
 export type ShapeObject = BoxShapeObject | LineShapeObject;
 
-export type EditorObject = TextObject | ShapeObject;
+/**
+ * A crop expressed in normalised source coordinates, 0..1.
+ *
+ * Normalised rather than pixels so it stays meaningful regardless of the
+ * source image's resolution.
+ */
+export interface Crop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ImageObject extends BaseObject {
+  kind: 'image';
+  /** The source image as a data URL, e.g. "data:image/png;base64,...". */
+  src: string;
+  /** Natural pixel dimensions of the source, before any crop. */
+  naturalWidth: number;
+  naturalHeight: number;
+  /** Visible region of the source. */
+  crop: Crop;
+  /** Clockwise degrees, matching CSS. PDF's anticlockwise sign is applied at export. */
+  rotation: number;
+  opacity: number;
+}
+
+export type EditorObject = TextObject | ShapeObject | ImageObject;
 
 /** The whole working document. `sourceBytes` is never mutated. */
 export interface Doc {
@@ -108,7 +135,9 @@ export interface Doc {
 export const isBlankPage = (p: Page): boolean => p.sourceIndex === null;
 
 export const isText = (o: EditorObject): o is TextObject => o.kind === 'text';
-export const isShape = (o: EditorObject): o is ShapeObject => o.kind !== 'text';
+export const isImage = (o: EditorObject): o is ImageObject => o.kind === 'image';
+export const isShape = (o: EditorObject): o is ShapeObject =>
+  o.kind !== 'text' && o.kind !== 'image';
 
 export const isLine = (o: EditorObject): o is LineShapeObject =>
   o.kind === 'line' || o.kind === 'arrow';
@@ -116,4 +145,4 @@ export const isLine = (o: EditorObject): o is LineShapeObject =>
 export const isBoxShape = (o: EditorObject): o is BoxShapeObject =>
   o.kind === 'rect' || o.kind === 'ellipse' || o.kind === 'triangle';
 
-export type ToolId = 'select' | 'text' | ShapeKind;
+export type ToolId = 'select' | 'text' | 'image' | ShapeKind;

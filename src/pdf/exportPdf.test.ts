@@ -4,7 +4,7 @@ import { PDFDocument } from '@cantoo/pdf-lib';
 import { exportPdf, hexToRgb, type FontSet } from './exportPdf';
 import { createMetrics, layoutText, lineX } from './fontMetrics';
 import { drawnTextOnPage } from './contentStream';
-import type { Doc, Page, TextObject } from '../model/types';
+import type { Doc, ImageObject, Page, TextObject } from '../model/types';
 
 let source: Uint8Array;
 let fonts: FontSet;
@@ -258,6 +258,65 @@ describe('object drawing', () => {
   it('skips objects whose page was deleted', async () => {
     // t1 belongs to page 'a'; exporting only page 'b' must not draw it.
     const out = await exportPdf(doc([page('b', 1)], { t1: text() }), fonts);
+    expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
+  });
+});
+
+describe('images', () => {
+  // A 1x1 opaque PNG: enough for pdf-lib to embed without needing a canvas.
+  const PNG =
+    'data:image/png;base64,' +
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk' +
+    'YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+  const image = (over: Partial<ImageObject> = {}): ImageObject => ({
+    id: 'i1',
+    pageId: 'a',
+    kind: 'image',
+    x: 50,
+    y: 60,
+    width: 120,
+    height: 80,
+    src: PNG,
+    naturalWidth: 1,
+    naturalHeight: 1,
+    crop: { x: 0, y: 0, width: 1, height: 1 },
+    rotation: 0,
+    opacity: 1,
+    ...over,
+  });
+
+  it('embeds an uncropped image and grows the file', async () => {
+    const bare = await exportPdf(doc([page('a', 0)]), fonts);
+    const withImage = await exportPdf(doc([page('a', 0, ['i1'])], { i1: image() }), fonts);
+    expect(withImage.byteLength).toBeGreaterThan(bare.byteLength);
+  });
+
+  it('exports a rotated image without throwing', async () => {
+    const out = await exportPdf(
+      doc([page('a', 0, ['i1'])], { i1: image({ rotation: 37 }) }),
+      fonts,
+    );
+    expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
+  });
+
+  it('exports a semi-transparent image', async () => {
+    const out = await exportPdf(
+      doc([page('a', 0, ['i1'])], { i1: image({ opacity: 0.4 }) }),
+      fonts,
+    );
+    expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
+  });
+
+  it('draws images alongside text and shapes on the same page', async () => {
+    const objects: Doc['objects'] = { i1: image(), t1: text() };
+    const out = await exportPdf(doc([page('a', 0, ['i1', 't1'])], objects), fonts);
+    const drawn = (await drawnTextOnPage(out, 0)).filter((d) => d.font.startsWith('Inter'));
+    expect(drawn).toHaveLength(1);
+  });
+
+  it('skips an image whose page was removed', async () => {
+    const out = await exportPdf(doc([page('b', 1)], { i1: image() }), fonts);
     expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
   });
 });

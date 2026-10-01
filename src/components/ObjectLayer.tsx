@@ -2,16 +2,20 @@ import { useCallback, useRef, useState, type CSSProperties, type PointerEvent } 
 import { nextId, useStore } from '../model/store';
 import { displayToPage } from '../geometry/coords';
 import { arrowHead, constrainTo45, lineFromPoints, type Point } from '../geometry/lines';
+import { clampCrop, preserveAspect } from '../geometry/images';
 import { resolveSnap, type SnapIndicator, type SnapTarget } from '../geometry/snapping';
 import { SnapIndicators } from './SnapIndicators';
 import { ShapeObjectView } from './ShapeObjectView';
 import { TextObjectView } from './TextObjectView';
+import { ImageObjectView, CropPreview } from './ImageObjectView';
 import {
   isBoxShape,
+  isImage,
   isLine,
   isText,
   type BoxShapeKind,
   type BoxShapeObject,
+  type Crop,
   type EditorObject,
   type LineShapeKind,
   type LineShapeObject,
@@ -28,7 +32,9 @@ type Interaction =
   | { mode: 'create-line'; start: Point }
   | { mode: 'move'; ids: string[]; start: Point; origins: Record<string, Rect> }
   | { mode: 'resize'; id: string; handle: Handle; origin: Rect }
-  | { mode: 'endpoint'; id: string; which: 'start' | 'end'; anchor: Point };
+  | { mode: 'endpoint'; id: string; which: 'start' | 'end'; anchor: Point }
+  | { mode: 'rotate'; id: string; centre: Point; startAngle: number; startRotation: number }
+  | { mode: 'crop'; id: string; handle: Handle; origin: Crop };
 
 interface Props {
   page: Page;
@@ -58,6 +64,7 @@ export function ObjectLayer({ page, zoom }: Props) {
   const editSelectAll = useStore((s) => s.editSelectAll);
   const beginEditing = useStore((s) => s.beginEditing);
   const endEditing = useStore((s) => s.endEditing);
+  const croppingId = useStore((s) => s.croppingObjectId);
 
   const layer = useRef<HTMLDivElement>(null);
   const interaction = useRef<Interaction | null>(null);
@@ -159,6 +166,45 @@ export function ObjectLayer({ page, zoom }: Props) {
       return;
     }
 
+    if (current.mode === 'rotate') {
+      const angle = (Math.atan2(p.y - current.centre.y, p.x - current.centre.x) * 180) / Math.PI;
+      let rotation = current.startRotation + (angle - current.startAngle);
+      // Shift snaps to 15 degrees, the usual increment for straightening a
+      // scan or squaring something up by eye.
+      if (e.shiftKey) rotation = Math.round(rotation / 15) * 15;
+      updateObjectTransient(current.id, { rotation: ((rotation % 360) + 360) % 360 });
+      return;
+    }
+
+    if (current.mode === 'crop') {
+      const obj = doc?.objects[current.id];
+      if (!obj || !isImage(obj)) return;
+
+      // Pointer position as a fraction of the visible box, mapped back through
+      // the current crop into source coordinates.
+      const fx = (p.x - obj.x) / obj.width;
+      const fy = (p.y - obj.y) / obj.height;
+      const sx = current.origin.x + fx * current.origin.width;
+      const sy = current.origin.y + fy * current.origin.height;
+
+      const next = { ...current.origin };
+      if (current.handle.includes('w')) {
+        const right = current.origin.x + current.origin.width;
+        next.x = Math.min(sx, right);
+        next.width = right - next.x;
+      }
+      if (current.handle.includes('e')) next.width = sx - next.x;
+      if (current.handle.includes('n')) {
+        const bottom = current.origin.y + current.origin.height;
+        next.y = Math.min(sy, bottom);
+        next.height = bottom - next.y;
+      }
+      if (current.handle.includes('s')) next.height = sy - next.y;
+
+      updateObjectTransient(current.id, { crop: clampCrop(next) });
+      return;
+    }
+
     if (current.mode === 'create-box') {
       let rect = normalise(current.start, p);
       if (e.shiftKey) rect = constrainSquare(current.start, rect);
@@ -189,7 +235,20 @@ export function ObjectLayer({ page, zoom }: Props) {
     }
 
     if (current.mode === 'resize') {
-      const resized = applyHandle(current.origin, current.handle, p);
+      const obj0 = doc?.objects[current.id];
+      // An image distorted by a careless corner drag is almost never wanted,
+      // so the ratio holds by default and Shift releases it — the opposite of
+      // the shape tools, where free-form is the norm.
+      const keepAspect =
+        obj0 !== undefined && isImage(obj0) && !e.shiftKey && current.handle.length === 2;
+      const resized = keepAspect
+        ? preserveAspect(
+            current.origin,
+            current.handle,
+            p,
+            current.origin.width / Math.max(current.origin.height, 0.001),
+          )
+        : applyHandle(current.origin, current.handle, p);
       const snapped = snapFor(resized, [current.id], e.altKey);
       setIndicators(snapped.indicators);
 
@@ -346,6 +405,9 @@ export function ObjectLayer({ page, zoom }: Props) {
               width: o.width * zoom,
               height: o.height * zoom,
               cursor: tool !== 'select' ? 'crosshair' : isText(o) ? 'text' : 'move',
+              // Rotating the wrapper means the selection outline and handles
+              // turn with the image rather than staying axis-aligned around it.
+              transform: isImage(o) && o.rotation ? `rotate(${o.rotation}deg)` : undefined,
             }}
             onPointerDown={(e) => beginMove(e, o)}
             onDoubleClick={(e) => {
@@ -367,6 +429,12 @@ export function ObjectLayer({ page, zoom }: Props) {
                   commitInteraction();
                 }}
               />
+            ) : isImage(o) ? (
+              croppingId === o.id ? (
+                <CropPreview o={o} zoom={zoom} />
+              ) : (
+                <ImageObjectView o={o} zoom={zoom} />
+              )
             ) : (
               <ShapeObjectView o={o} zoom={zoom} />
             )}
@@ -389,9 +457,49 @@ export function ObjectLayer({ page, zoom }: Props) {
               </>
             )}
 
-            {selected && editingId !== o.id && !line && (
+            {selected && croppingId === o.id && isImage(o) && (
+              <>
+                {HANDLES.map((h) => (
+                  <div
+                    key={h}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      interaction.current = {
+                        mode: 'crop',
+                        id: o.id,
+                        handle: h,
+                        origin: clampCrop(o.crop),
+                      };
+                      layer.current?.setPointerCapture(e.pointerId);
+                    }}
+                    className="absolute h-2.5 w-2.5 border-2 border-accent bg-white"
+                    style={{ ...handlePosition(h), cursor: `${h}-resize` }}
+                  />
+                ))}
+              </>
+            )}
+
+            {selected && editingId !== o.id && croppingId !== o.id && !line && (
               <>
                 <div className="pointer-events-none absolute -inset-px ring-1 ring-accent" />
+
+                {isImage(o) && (
+                  <RotateHandle
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      const centre = { x: o.x + o.width / 2, y: o.y + o.height / 2 };
+                      const at = toPage(e);
+                      interaction.current = {
+                        mode: 'rotate',
+                        id: o.id,
+                        centre,
+                        startAngle: (Math.atan2(at.y - centre.y, at.x - centre.x) * 180) / Math.PI,
+                        startRotation: o.rotation,
+                      };
+                      layer.current?.setPointerCapture(e.pointerId);
+                    }}
+                  />
+                )}
                 {HANDLES.map((h) => (
                   <div
                     key={h}
@@ -475,6 +583,25 @@ function LinePreview({
         />
       )}
     </svg>
+  );
+}
+
+function RotateHandle({
+  onPointerDown,
+}: {
+  onPointerDown(e: PointerEvent<HTMLDivElement>): void;
+}) {
+  return (
+    <div
+      role="button"
+      aria-label="Rotate image"
+      title="Drag to rotate · hold Shift for 15° steps"
+      onPointerDown={onPointerDown}
+      className="absolute left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border border-accent bg-white text-[10px] text-accent shadow-sm"
+      style={{ top: -28, cursor: 'grab' }}
+    >
+      ⟳
+    </div>
   );
 }
 

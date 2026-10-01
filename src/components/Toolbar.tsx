@@ -15,9 +15,10 @@ interface Props {
   onExport(): void;
   exporting: boolean;
   onCloseDoc(): void;
+  onInsertImage(file: File): void;
 }
 
-export function Toolbar({ onExport, exporting, onCloseDoc }: Props) {
+export function Toolbar({ onExport, exporting, onCloseDoc, onInsertImage }: Props) {
   const tool = useStore((s) => s.tool);
   const setTool = useStore((s) => s.setTool);
   const zoom = useStore((s) => s.zoom);
@@ -57,6 +58,25 @@ export function Toolbar({ onExport, exporting, onCloseDoc }: Props) {
           {t.glyph}
         </button>
       ))}
+
+      <label
+        title="Insert an image"
+        aria-label="Insert an image"
+        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-sm text-slate-600 transition-colors hover:bg-slate-100"
+      >
+        ▣
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onInsertImage(file);
+            // Reset so the same file can be inserted twice in a row.
+            e.target.value = '';
+          }}
+        />
+      </label>
 
       <Divider />
 

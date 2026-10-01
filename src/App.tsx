@@ -5,6 +5,7 @@ import { loadDocument, openBytes, PdfLoadError } from './pdf/loadDocument';
 import { exportPdf, type FontSet } from './pdf/exportPdf';
 import { primeFont } from './pdf/fontMetrics';
 import { clearRenderCache } from './pdf/renderPage';
+import { loadImageFile, ImageLoadError } from './pdf/imageFile';
 import {
   createAutosave,
   deleteDocument,
@@ -56,6 +57,7 @@ export default function App() {
   const setError = useStore((s) => s.setError);
   const setSnapEnabled = useStore((s) => s.setSnapEnabled);
   const closeDoc = useStore((s) => s.closeDoc);
+  const addImage = useStore((s) => s.addImage);
 
   const [proxy, setProxy] = useState<PDFDocumentProxy | null>(null);
   const [busy, setBusy] = useState(false);
@@ -182,6 +184,18 @@ export default function App() {
     [refreshDocuments],
   );
 
+  const onInsertImage = useCallback(
+    async (file: File) => {
+      setError(null);
+      try {
+        addImage(await loadImageFile(file));
+      } catch (e) {
+        setError(e instanceof ImageLoadError ? e.message : 'That image could not be inserted.');
+      }
+    },
+    [addImage, setError],
+  );
+
   const onExport = useCallback(async () => {
     const current = useStore.getState().doc;
     if (!current) return;
@@ -253,7 +267,12 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <Toolbar onExport={onExport} exporting={exporting} onCloseDoc={onCloseDoc} />
+      <Toolbar
+        onExport={onExport}
+        exporting={exporting}
+        onCloseDoc={onCloseDoc}
+        onInsertImage={onInsertImage}
+      />
 
       {error && (
         <div className="flex shrink-0 items-center justify-between border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
