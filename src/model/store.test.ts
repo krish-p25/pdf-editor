@@ -194,3 +194,100 @@ describe('adding a blank page', () => {
     expect(useStore.getState().doc).toBeNull();
   });
 });
+
+describe('inserting an image', () => {
+  const img = { src: 'data:image/png;base64,AAAA', naturalWidth: 800, naturalHeight: 400 };
+
+  it('places it on the active page', () => {
+    useStore.getState().addImage(img);
+    const added = Object.values(useStore.getState().doc!.objects).find((o) => o.kind === 'image');
+    expect(added?.pageId).toBe('p1');
+  });
+
+  it('scales it to fit within half the page, preserving aspect', () => {
+    useStore.getState().addImage(img);
+    const added = Object.values(useStore.getState().doc!.objects).find((o) => o.kind === 'image')!;
+    // Page is 600x800; half-width is 300, so an 800x400 image lands at 300x150.
+    expect(added.width).toBeCloseTo(300, 6);
+    expect(added.height).toBeCloseTo(150, 6);
+  });
+
+  it('centres it on the page', () => {
+    useStore.getState().addImage(img);
+    const a = Object.values(useStore.getState().doc!.objects).find((o) => o.kind === 'image')!;
+    expect(a.x + a.width / 2).toBeCloseTo(300, 6);
+    expect(a.y + a.height / 2).toBeCloseTo(400, 6);
+  });
+
+  it('starts uncropped, unrotated and fully opaque', () => {
+    useStore.getState().addImage(img);
+    const a = Object.values(useStore.getState().doc!.objects).find((o) => o.kind === 'image');
+    expect(a).toMatchObject({
+      crop: { x: 0, y: 0, width: 1, height: 1 },
+      rotation: 0,
+      opacity: 1,
+    });
+  });
+
+  it('selects it so it can be moved straight away', () => {
+    useStore.getState().addImage(img);
+    const a = Object.values(useStore.getState().doc!.objects).find((o) => o.kind === 'image')!;
+    expect(useStore.getState().selection).toEqual([a.id]);
+  });
+
+  it('is undoable', () => {
+    useStore.getState().addImage(img);
+    useStore.getState().undo();
+    const any = Object.values(useStore.getState().doc!.objects).some((o) => o.kind === 'image');
+    expect(any).toBe(false);
+  });
+
+  it('does nothing when no page is active', () => {
+    useStore.getState().closeDoc();
+    useStore.getState().addImage(img);
+    expect(useStore.getState().doc).toBeNull();
+  });
+});
+
+describe('crop mode', () => {
+  const img = { src: 'data:image/png;base64,AAAA', naturalWidth: 800, naturalHeight: 400 };
+  const imageId = () =>
+    Object.values(useStore.getState().doc!.objects).find((o) => o.kind === 'image')!.id;
+
+  it('starts off', () => {
+    expect(useStore.getState().croppingObjectId).toBeNull();
+  });
+
+  it('enters crop mode for an image', () => {
+    useStore.getState().addImage(img);
+    useStore.getState().setCropping(imageId());
+    expect(useStore.getState().croppingObjectId).toBe(imageId());
+  });
+
+  it('refuses to crop a non-image', () => {
+    useStore.getState().setCropping('t1');
+    expect(useStore.getState().croppingObjectId).toBeNull();
+  });
+
+  it('leaves crop mode when a drawing tool is picked', () => {
+    useStore.getState().addImage(img);
+    useStore.getState().setCropping(imageId());
+    useStore.getState().setTool('rect');
+    expect(useStore.getState().croppingObjectId).toBeNull();
+  });
+
+  it('leaves crop mode when the selection is cleared', () => {
+    useStore.getState().addImage(img);
+    useStore.getState().setCropping(imageId());
+    useStore.getState().clearSelection();
+    expect(useStore.getState().croppingObjectId).toBeNull();
+  });
+
+  it('leaves crop mode when the image is deleted', () => {
+    useStore.getState().addImage(img);
+    const id = imageId();
+    useStore.getState().setCropping(id);
+    useStore.getState().deleteObjects([id]);
+    expect(useStore.getState().croppingObjectId).toBeNull();
+  });
+});

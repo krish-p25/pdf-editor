@@ -1,0 +1,160 @@
+import { describe, it, expect } from 'vitest';
+import {
+  clampCrop,
+  cropPixels,
+  fitWithin,
+  preserveAspect,
+  rotatedDrawAnchor,
+  FULL_CROP,
+} from './images';
+
+describe('fitWithin', () => {
+  it('leaves an image that already fits alone', () => {
+    expect(fitWithin(100, 50, 400, 400)).toEqual({ width: 100, height: 50 });
+  });
+
+  it('scales a wide image down by its width', () => {
+    expect(fitWithin(800, 400, 400, 400)).toEqual({ width: 400, height: 200 });
+  });
+
+  it('scales a tall image down by its height', () => {
+    expect(fitWithin(400, 800, 400, 400)).toEqual({ width: 200, height: 400 });
+  });
+
+  it('preserves the aspect ratio exactly', () => {
+    const r = fitWithin(1920, 1080, 500, 500);
+    expect(r.width / r.height).toBeCloseTo(1920 / 1080, 9);
+  });
+
+  it('never returns a zero dimension for a degenerate image', () => {
+    const r = fitWithin(0, 0, 400, 400);
+    expect(r.width).toBeGreaterThan(0);
+    expect(r.height).toBeGreaterThan(0);
+  });
+});
+
+describe('clampCrop', () => {
+  it('leaves a valid crop untouched', () => {
+    const c = { x: 0.1, y: 0.2, width: 0.5, height: 0.6 };
+    expect(clampCrop(c)).toEqual(c);
+  });
+
+  it('pulls a crop back inside the image', () => {
+    expect(clampCrop({ x: -0.2, y: -0.3, width: 0.5, height: 0.5 })).toEqual({
+      x: 0,
+      y: 0,
+      width: 0.5,
+      height: 0.5,
+    });
+  });
+
+  it('shrinks a crop that runs off the right edge', () => {
+    const c = clampCrop({ x: 0.8, y: 0, width: 0.5, height: 1 });
+    expect(c.x + c.width).toBeLessThanOrEqual(1);
+  });
+
+  it('refuses to produce a zero-area crop', () => {
+    const c = clampCrop({ x: 0.5, y: 0.5, width: 0, height: 0 });
+    expect(c.width).toBeGreaterThan(0);
+    expect(c.height).toBeGreaterThan(0);
+  });
+
+  it('treats the full crop as a fixed point', () => {
+    expect(clampCrop(FULL_CROP)).toEqual(FULL_CROP);
+  });
+});
+
+describe('cropPixels', () => {
+  it('maps a full crop to the whole image', () => {
+    expect(cropPixels(FULL_CROP, 800, 600)).toEqual({ x: 0, y: 0, width: 800, height: 600 });
+  });
+
+  it('maps a half crop to half the pixels', () => {
+    expect(cropPixels({ x: 0.25, y: 0.5, width: 0.5, height: 0.5 }, 800, 600)).toEqual({
+      x: 200,
+      y: 300,
+      width: 400,
+      height: 300,
+    });
+  });
+
+  it('rounds to whole pixels, since a canvas cannot take a fraction', () => {
+    const r = cropPixels({ x: 1 / 3, y: 0, width: 1 / 3, height: 1 }, 100, 100);
+    expect(Number.isInteger(r.x)).toBe(true);
+    expect(Number.isInteger(r.width)).toBe(true);
+  });
+
+  it('never rounds down to a zero-width region', () => {
+    const r = cropPixels({ x: 0, y: 0, width: 0.001, height: 0.001 }, 100, 100);
+    expect(r.width).toBeGreaterThanOrEqual(1);
+    expect(r.height).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('preserveAspect', () => {
+  const origin = { x: 0, y: 0, width: 200, height: 100 }; // 2:1
+
+  it('keeps the ratio when dragging a corner outward', () => {
+    const r = preserveAspect(origin, 'se', { x: 400, y: 400 }, 2);
+    expect(r.width / r.height).toBeCloseTo(2, 9);
+  });
+
+  it('anchors the opposite corner when dragging south-east', () => {
+    const r = preserveAspect(origin, 'se', { x: 400, y: 400 }, 2);
+    expect(r.x).toBe(0);
+    expect(r.y).toBe(0);
+  });
+
+  it('moves the origin when dragging north-west', () => {
+    const r = preserveAspect(origin, 'nw', { x: -100, y: -100 }, 2);
+    expect(r.x + r.width).toBeCloseTo(200, 6);
+    expect(r.y + r.height).toBeCloseTo(100, 6);
+    expect(r.width / r.height).toBeCloseTo(2, 9);
+  });
+
+  it('never produces a negative size', () => {
+    const r = preserveAspect(origin, 'se', { x: -500, y: -500 }, 2);
+    expect(r.width).toBeGreaterThan(0);
+    expect(r.height).toBeGreaterThan(0);
+  });
+});
+
+describe('rotatedDrawAnchor', () => {
+  const centre = { x: 100, y: 100 };
+
+  it('is the plain bottom-left corner when unrotated', () => {
+    const a = rotatedDrawAnchor(centre, 40, 20, 0);
+    expect(a.x).toBeCloseTo(80, 9);
+    expect(a.y).toBeCloseTo(90, 9);
+    expect(a.degrees).toBeCloseTo(0, 9);
+  });
+
+  it('negates the angle, because PDF rotates anticlockwise and CSS clockwise', () => {
+    expect(rotatedDrawAnchor(centre, 40, 20, 90).degrees).toBeCloseTo(-90, 9);
+  });
+
+  it('keeps the image centred on the same point at any angle', () => {
+    // Rotating the returned anchor back about the centre must land on the
+    // unrotated bottom-left corner.
+    for (const deg of [0, 30, 90, 180, 270, 315]) {
+      const w = 40;
+      const h = 20;
+      const a = rotatedDrawAnchor(centre, w, h, deg);
+
+      // Recover the centre from the anchor by walking half the diagonal in the
+      // rotated frame.
+      const rad = (-deg * Math.PI) / 180;
+      const cx = a.x + (w / 2) * Math.cos(rad) - (h / 2) * Math.sin(rad);
+      const cy = a.y + (w / 2) * Math.sin(rad) + (h / 2) * Math.cos(rad);
+
+      expect(cx).toBeCloseTo(centre.x, 6);
+      expect(cy).toBeCloseTo(centre.y, 6);
+    }
+  });
+
+  it('normalises angles beyond a full turn', () => {
+    const a = rotatedDrawAnchor(centre, 40, 20, 360);
+    expect(a.x).toBeCloseTo(80, 6);
+    expect(a.y).toBeCloseTo(90, 6);
+  });
+});

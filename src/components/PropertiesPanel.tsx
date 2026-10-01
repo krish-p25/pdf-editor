@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { useStore } from '../model/store';
 import { lineLength } from '../geometry/lines';
-import { isBoxShape, isLine, isText, type EditorObject } from '../model/types';
+import { FULL_CROP } from '../geometry/images';
+import { isBoxShape, isImage, isLine, isText, type EditorObject } from '../model/types';
 
 export function PropertiesPanel() {
   const doc = useStore((s) => s.doc);
@@ -11,6 +12,8 @@ export function PropertiesPanel() {
   const bringToFront = useStore((s) => s.bringToFront);
   const sendToBack = useStore((s) => s.sendToBack);
   const beginEditing = useStore((s) => s.beginEditing);
+  const croppingId = useStore((s) => s.croppingObjectId);
+  const setCropping = useStore((s) => s.setCropping);
 
   const o: EditorObject | undefined =
     selection.length === 1 ? doc?.objects[selection[0]] : undefined;
@@ -79,6 +82,62 @@ export function PropertiesPanel() {
             </div>
           </Row>
           <div className="pt-1 text-xs text-slate-400">Font family is always Inter.</div>
+        </Section>
+      ) : isImage(o) ? (
+        <Section title="Image">
+          <button
+            type="button"
+            onClick={() => setCropping(croppingId === o.id ? null : o.id)}
+            className={`w-full rounded-md border py-1.5 text-sm font-medium transition-colors ${
+              croppingId === o.id
+                ? 'border-accent bg-accent text-white hover:bg-blue-700'
+                : 'border-accent bg-white text-accent hover:bg-blue-50'
+            }`}
+          >
+            {croppingId === o.id ? 'Done cropping' : 'Crop'}
+          </button>
+          <div className="pb-1 text-xs text-slate-400">
+            {croppingId === o.id
+              ? 'Drag the handles to choose what to keep.'
+              : 'Drag the ⟳ handle above the image to rotate.'}
+          </div>
+
+          <Row label="Rotation">
+            <NumberInput
+              value={round(o.rotation)}
+              min={0}
+              max={359}
+              step={1}
+              onChange={(v) => set({ rotation: ((v % 360) + 360) % 360 })}
+            />
+          </Row>
+          <Row label="Opacity">
+            <NumberInput
+              value={o.opacity}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => set({ opacity: clamp01(v) })}
+            />
+          </Row>
+
+          <div className="flex gap-2 pt-1">
+            <SmallButton onClick={() => set({ crop: { ...FULL_CROP } })}>Reset crop</SmallButton>
+            <SmallButton onClick={() => set({ rotation: 0 })}>Reset angle</SmallButton>
+          </div>
+          <SmallButton
+            onClick={() =>
+              set({
+                // Restore the natural aspect ratio of the CROPPED region,
+                // keeping the current width.
+                height:
+                  (o.width * (o.naturalHeight * o.crop.height)) /
+                  Math.max(o.naturalWidth * o.crop.width, 0.001),
+              })
+            }
+          >
+            Fix aspect ratio
+          </SmallButton>
         </Section>
       ) : (
         <Section title="Shape">

@@ -3,11 +3,15 @@ import fontkit from '@cantoo/fontkit';
 import { layoutText, lineX, variantOf, type FontMetrics, type FontVariant } from './fontMetrics';
 import { rectToPdf } from '../geometry/coords';
 import { arrowHead } from '../geometry/lines';
+import { cropPixels, rotatedDrawAnchor, FULL_CROP } from '../geometry/images';
+import { dataUrlToBytes, isJpegDataUrl } from './imageFile';
 import {
+  isImage,
   isLine,
   isText,
   type BoxShapeObject,
   type Doc,
+  type ImageObject,
   type LineShapeObject,
   type TextObject,
 } from '../model/types';
@@ -163,6 +167,96 @@ function drawBoxShape(page: PDFPage, o: BoxShapeObject, pageHeight: number): voi
 }
 
 /**
+ * Render an image's cropped region to a data URL.
+ *
+ * pdf-lib cannot clip an image, so the crop is baked in here. Going through a
+ * canvas means the bytes embedded in the PDF are exactly the pixels the
+ * preview showed, rather than relying on two renderers agreeing about a
+ * clipping path.
+ *
+ * An uncropped image is passed through untouched, so the common case keeps its
+ * original encoding instead of being re-compressed for no reason.
+ */
+async function croppedImageBytes(o: ImageObject): Promise<{ bytes: Uint8Array; jpeg: boolean }> {
+  const isFullCrop =
+    o.crop.x === FULL_CROP.x &&
+    o.crop.y === FULL_CROP.y &&
+    o.crop.width === FULL_CROP.width &&
+    o.crop.height === FULL_CROP.height;
+
+  if (isFullCrop) {
+    return { bytes: dataUrlToBytes(o.src), jpeg: isJpegDataUrl(o.src) };
+  }
+
+  const region = cropPixels(o.crop, o.naturalWidth, o.naturalHeight);
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Could not decode an image for export.'));
+    el.src = o.src;
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = region.width;
+  canvas.height = region.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not acquire a 2D canvas context for image export.');
+
+  const jpeg = isJpegDataUrl(o.src);
+  if (jpeg) {
+    // JPEG has no alpha; without a backdrop a transparent source goes black.
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, region.width, region.height);
+  }
+  ctx.drawImage(
+    img,
+    region.x,
+    region.y,
+    region.width,
+    region.height,
+    0,
+    0,
+    region.width,
+    region.height,
+  );
+
+  const url = jpeg ? canvas.toDataURL('image/jpeg', 0.92) : canvas.toDataURL('image/png');
+  return { bytes: dataUrlToBytes(url), jpeg };
+}
+
+/**
+ * Draw an image, rotated about its centre.
+ *
+ * pdf-lib rotates about the anchor it is given, which is the bottom-left
+ * corner, so the anchor is walked back along the rotated diagonal to put the
+ * centre where the user placed it.
+ */
+async function drawImageObject(
+  out: PDFDocument,
+  page: PDFPage,
+  o: ImageObject,
+  pageHeight: number,
+): Promise<void> {
+  const { bytes, jpeg } = await croppedImageBytes(o);
+  const embedded = jpeg ? await out.embedJpg(bytes) : await out.embedPng(bytes);
+
+  const centre = {
+    x: o.x + o.width / 2,
+    y: pageHeight - (o.y + o.height / 2),
+  };
+  const anchor = rotatedDrawAnchor(centre, o.width, o.height, o.rotation);
+
+  page.drawImage(embedded, {
+    x: anchor.x,
+    y: anchor.y,
+    width: o.width,
+    height: o.height,
+    rotate: degrees(anchor.degrees),
+    opacity: o.opacity,
+  });
+}
+
+/**
  * Build the exported PDF: copy the surviving source pages in the user's order,
  * apply rotation, then draw each page's objects back-to-front.
  *
@@ -213,6 +307,8 @@ export async function exportPdf(doc: Doc, fonts: FontSet): Promise<Uint8Array> {
         const variant = variantOf(o.bold, o.italic);
         const font = embedded[variant];
         if (font) drawTextObject(pdfPage, o, fonts[variant], font, modelPage.height);
+      } else if (isImage(o)) {
+        await drawImageObject(out, pdfPage, o, modelPage.height);
       } else if (isLine(o)) {
         drawLineObject(pdfPage, o, modelPage.height);
       } else {
