@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "docker build -t pdf-editor:latest . && docker compose up -d"
+    "deploy": "docker compose down --rmi all --remove-orphans && docker build -t pdf-editor:latest . && docker compose up -d"
   },
   "dependencies": {
     "@cantoo/fontkit": "^2.0.12",
