@@ -31,6 +31,7 @@ const page = (id: string, sourceIndex: number, objectIds: string[] = []): Page =
 });
 
 const doc = (pages: Page[], objects: Doc['objects'] = {}): Doc => ({
+  id: 'doc_test',
   fileName: 'test.pdf',
   sourceBytes: source,
   pages,

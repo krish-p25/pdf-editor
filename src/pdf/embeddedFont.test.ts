@@ -61,6 +61,7 @@ const text = (over: Partial<TextObject> = {}): TextObject => ({
 });
 
 const doc = (objects: Doc['objects']): Doc => ({
+  id: 'doc_test',
   fileName: 'test.pdf',
   sourceBytes: source,
   pages: [page(Object.keys(objects))],

@@ -1,6 +1,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { newDocumentId } from '../model/persistence';
 import { nextId } from '../model/store';
 import type { Doc, Page } from '../model/types';
 
@@ -53,7 +54,12 @@ export async function openBytes(bytes: Uint8Array, fileName: string): Promise<Lo
     });
   }
 
-  return { doc: { fileName, sourceBytes: bytes, pages, objects: {} }, proxy };
+  // A fresh id per upload, so opening the same file twice gives two separate
+  // documents rather than silently resuming the earlier one.
+  return {
+    doc: { id: newDocumentId(), fileName, sourceBytes: bytes, pages, objects: {} },
+    proxy,
+  };
 }
 
 export async function loadDocument(file: File): Promise<LoadedPdf> {
