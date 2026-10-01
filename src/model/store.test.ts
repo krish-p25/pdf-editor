@@ -291,3 +291,65 @@ describe('crop mode', () => {
     expect(useStore.getState().croppingObjectId).toBeNull();
   });
 });
+
+describe('importing another PDF', () => {
+  const merged = new Uint8Array([9, 9, 9]);
+  const imported = [
+    { sourceIndex: 2, rotation: 0 as const, width: 400, height: 500, objectIds: [] },
+    { sourceIndex: 3, rotation: 0 as const, width: 400, height: 500, objectIds: [] },
+  ];
+
+  it('appends the new pages at the end', () => {
+    useStore.getState().appendImportedPages(merged, imported);
+    const pages = useStore.getState().doc!.pages;
+    expect(pages).toHaveLength(4);
+    expect(pages.slice(2).map((p) => p.sourceIndex)).toEqual([2, 3]);
+  });
+
+  it('leaves the existing pages and their source indices alone', () => {
+    const before = useStore.getState().doc!.pages.map((p) => p.sourceIndex);
+    useStore.getState().appendImportedPages(merged, imported);
+    const after = useStore.getState().doc!.pages.slice(0, 2).map((p) => p.sourceIndex);
+    expect(after).toEqual(before);
+  });
+
+  it('swaps in the merged source bytes', () => {
+    useStore.getState().appendImportedPages(merged, imported);
+    expect(Array.from(useStore.getState().doc!.sourceBytes)).toEqual([9, 9, 9]);
+  });
+
+  it('gives every imported page a distinct id', () => {
+    useStore.getState().appendImportedPages(merged, imported);
+    const ids = useStore.getState().doc!.pages.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('jumps to the first imported page', () => {
+    useStore.getState().appendImportedPages(merged, imported);
+    const pages = useStore.getState().doc!.pages;
+    expect(useStore.getState().activePageId).toBe(pages[2].id);
+  });
+
+  it('carries each imported page size through', () => {
+    useStore.getState().appendImportedPages(merged, imported);
+    expect(useStore.getState().doc!.pages[2]).toMatchObject({ width: 400, height: 500 });
+  });
+
+  it('is undoable, restoring the original page list', () => {
+    useStore.getState().appendImportedPages(merged, imported);
+    expect(useStore.getState().doc!.pages).toHaveLength(4);
+    useStore.getState().undo();
+    expect(useStore.getState().doc!.pages).toHaveLength(2);
+  });
+
+  it('leaves imported pages reorderable like any other', () => {
+    useStore.getState().appendImportedPages(merged, imported);
+    useStore.getState().reorderPages(2, 0);
+    expect(useStore.getState().doc!.pages[0].sourceIndex).toBe(2);
+  });
+
+  it('does nothing when the import contributed no pages', () => {
+    useStore.getState().appendImportedPages(merged, []);
+    expect(useStore.getState().doc!.pages).toHaveLength(2);
+  });
+});

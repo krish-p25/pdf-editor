@@ -16,12 +16,13 @@ import type { Page } from '../model/types';
 
 interface Props {
   proxy: PDFDocumentProxy;
+  onImportPdf(file: File): void;
 }
 
 /** Usable width of a thumbnail inside the rail, in CSS pixels. */
 const THUMBNAIL_WIDTH_PX = 148;
 
-export function ThumbnailRail({ proxy }: Props) {
+export function ThumbnailRail({ proxy, onImportPdf }: Props) {
   const doc = useStore((s) => s.doc);
   const activePageId = useStore((s) => s.activePageId);
   const setActivePage = useStore((s) => s.setActivePage);
@@ -59,6 +60,24 @@ export function ThumbnailRail({ proxy }: Props) {
           ))}
         </SortableContext>
       </DndContext>
+
+      <label
+        title="Add every page of another PDF to the end of this document"
+        className="shrink-0 cursor-pointer rounded-lg border-2 border-dashed border-edge py-3 text-center text-sm text-slate-500 transition-colors hover:border-accent hover:text-accent"
+      >
+        + Import PDF
+        <input
+          type="file"
+          accept="application/pdf,.pdf"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onImportPdf(file);
+            // Reset so the same file can be imported twice.
+            e.target.value = '';
+          }}
+        />
+      </label>
 
       <button
         type="button"

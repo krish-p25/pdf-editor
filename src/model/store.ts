@@ -69,6 +69,8 @@ interface State {
   reorderPages(from: number, to: number): void;
   /** Append a blank page matching the last page's visible size. */
   addBlankPage(): void;
+  /** Replace the source bytes with a merged document and append its new pages. */
+  appendImportedPages(sourceBytes: Uint8Array, pages: Omit<Page, 'id'>[]): void;
   deletePage(id: PageId): void;
   rotatePage(id: PageId, delta: 90 | -90): void;
 
@@ -313,6 +315,24 @@ export const useStore = create<State>((set, get) => {
       });
 
       set({ activePageId: id, selection: [], editingObjectId: null });
+    },
+
+    appendImportedPages(sourceBytes, pages) {
+      if (pages.length === 0) return;
+      const firstId = nextId('page');
+
+      mutate((d) => {
+        // The merged document keeps the original pages first and in order, so
+        // every sourceIndex already stored on a page still refers to the same
+        // content. Only the byte array changes underneath them.
+        d.sourceBytes = sourceBytes;
+        d.pages = [
+          ...d.pages,
+          ...pages.map((p, i) => ({ ...p, id: i === 0 ? firstId : nextId('page') })),
+        ];
+      });
+
+      set({ activePageId: firstId, selection: [], editingObjectId: null });
     },
 
     deletePage(id) {
