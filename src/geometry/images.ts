@@ -51,6 +51,28 @@ export function cropPixels(crop: Crop, naturalWidth: number, naturalHeight: numb
   };
 }
 
+/**
+ * Position a box so it is centred on `centre` but stays on the page.
+ *
+ * Dropping near an edge would otherwise leave most of the image hanging off
+ * the page, where it is both invisible and awkward to drag back. A box larger
+ * than the page is pinned to the top-left rather than given a negative
+ * offset, so at least its origin is reachable.
+ */
+export function placeAtPoint(
+  width: number,
+  height: number,
+  centre: Point,
+  page: { width: number; height: number },
+): { x: number; y: number } {
+  const x = centre.x - width / 2;
+  const y = centre.y - height / 2;
+  return {
+    x: Math.max(0, Math.min(x, page.width - width)),
+    y: Math.max(0, Math.min(y, page.height - height)),
+  };
+}
+
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 /**

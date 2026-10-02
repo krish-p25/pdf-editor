@@ -393,3 +393,60 @@ describe('renaming the document', () => {
     expect(useStore.getState().doc).toBeNull();
   });
 });
+
+describe('dropping an image at a point', () => {
+  const img = { src: 'data:image/png;base64,AAAA', naturalWidth: 800, naturalHeight: 400 };
+  const dropped = () =>
+    Object.values(useStore.getState().doc!.objects).find((o) => o.kind === 'image')!;
+
+  it('centres the image on the drop point', () => {
+    useStore.getState().addImageAt(img, { x: 300, y: 500 });
+    const a = dropped();
+    expect(a.x + a.width / 2).toBeCloseTo(300, 6);
+    expect(a.y + a.height / 2).toBeCloseTo(500, 6);
+  });
+
+  it('scales it the same way a picked image is scaled', () => {
+    useStore.getState().addImageAt(img, { x: 300, y: 400 });
+    expect(dropped()).toMatchObject({ width: 300, height: 150 });
+  });
+
+  it('keeps an image dropped at the edge on the page', () => {
+    // Page is 600x800 and the image is 300x150, so a drop at the far corner
+    // must be pulled back rather than left hanging off.
+    useStore.getState().addImageAt(img, { x: 600, y: 800 });
+    const a = dropped();
+    expect(a.x + a.width).toBeLessThanOrEqual(600);
+    expect(a.y + a.height).toBeLessThanOrEqual(800);
+  });
+
+  it('keeps an image dropped at the origin on the page', () => {
+    useStore.getState().addImageAt(img, { x: 0, y: 0 });
+    const a = dropped();
+    expect(a.x).toBe(0);
+    expect(a.y).toBe(0);
+  });
+
+  it('starts uncropped, unrotated and opaque like any other image', () => {
+    useStore.getState().addImageAt(img, { x: 100, y: 100 });
+    expect(dropped()).toMatchObject({
+      crop: { x: 0, y: 0, width: 1, height: 1 },
+      rotation: 0,
+      opacity: 1,
+    });
+  });
+
+  it('is undoable', () => {
+    useStore.getState().addImageAt(img, { x: 100, y: 100 });
+    useStore.getState().undo();
+    expect(Object.values(useStore.getState().doc!.objects).some((o) => o.kind === 'image')).toBe(
+      false,
+    );
+  });
+
+  it('does nothing when no document is open', () => {
+    useStore.getState().closeDoc();
+    useStore.getState().addImageAt(img, { x: 100, y: 100 });
+    expect(useStore.getState().doc).toBeNull();
+  });
+});

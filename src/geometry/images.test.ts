@@ -3,6 +3,7 @@ import {
   clampCrop,
   cropPixels,
   fitWithin,
+  placeAtPoint,
   preserveAspect,
   rotatedDrawAnchor,
   FULL_CROP,
@@ -156,5 +157,38 @@ describe('rotatedDrawAnchor', () => {
     const a = rotatedDrawAnchor(centre, 40, 20, 360);
     expect(a.x).toBeCloseTo(80, 6);
     expect(a.y).toBeCloseTo(90, 6);
+  });
+});
+
+describe('placeAtPoint', () => {
+  const page = { width: 600, height: 800 };
+
+  it('centres the box on the drop point', () => {
+    expect(placeAtPoint(100, 50, { x: 300, y: 400 }, page)).toEqual({ x: 250, y: 375 });
+  });
+
+  it('keeps a box dropped near the left edge on the page', () => {
+    expect(placeAtPoint(100, 50, { x: 10, y: 400 }, page).x).toBe(0);
+  });
+
+  it('keeps a box dropped near the right edge on the page', () => {
+    const p = placeAtPoint(100, 50, { x: 595, y: 400 }, page);
+    expect(p.x + 100).toBeLessThanOrEqual(page.width);
+  });
+
+  it('keeps a box dropped near the top and bottom on the page', () => {
+    expect(placeAtPoint(100, 50, { x: 300, y: 5 }, page).y).toBe(0);
+    const bottom = placeAtPoint(100, 50, { x: 300, y: 795 }, page);
+    expect(bottom.y + 50).toBeLessThanOrEqual(page.height);
+  });
+
+  it('pins a box larger than the page to the origin rather than off it', () => {
+    // Clamping naively would give a negative offset, putting the top-left
+    // corner out of reach.
+    expect(placeAtPoint(900, 1000, { x: 300, y: 400 }, page)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('leaves a box already fully inside exactly where it was dropped', () => {
+    expect(placeAtPoint(40, 40, { x: 200, y: 200 }, page)).toEqual({ x: 180, y: 180 });
   });
 });

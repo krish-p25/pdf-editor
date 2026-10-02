@@ -1,4 +1,11 @@
-import { useCallback, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
+import {
+  useCallback,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type PointerEvent,
+} from 'react';
 import { nextId, useStore } from '../model/store';
 import { displayToPage } from '../geometry/coords';
 import { arrowHead, constrainTo45, lineFromPoints, type Point } from '../geometry/lines';
@@ -9,6 +16,7 @@ import { ShapeObjectView } from './ShapeObjectView';
 import { TextObjectView } from './TextObjectView';
 import { ImageObjectView, CropPreview } from './ImageObjectView';
 import { objectBoxStyle } from './PageObjects';
+import { loadImageFile, ImageLoadError } from '../pdf/imageFile';
 import {
   isBoxShape,
   isImage,
@@ -66,6 +74,8 @@ export function ObjectLayer({ page, zoom }: Props) {
   const beginEditing = useStore((s) => s.beginEditing);
   const endEditing = useStore((s) => s.endEditing);
   const croppingId = useStore((s) => s.croppingObjectId);
+  const addImageAt = useStore((s) => s.addImageAt);
+  const setError = useStore((s) => s.setError);
 
   const layer = useRef<HTMLDivElement>(null);
   const interaction = useRef<Interaction | null>(null);
@@ -382,6 +392,65 @@ export function ObjectLayer({ page, zoom }: Props) {
     layer.current?.setPointerCapture(e.pointerId);
   };
 
+  // dragenter/dragleave fire for every child element, so a plain boolean
+  // would flicker as the pointer crosses objects on the page. Counting
+  // enter/leave pairs tracks the page as a whole.
+  const dragDepth = useRef(0);
+  const [dropActive, setDropActive] = useState(false);
+
+  const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
+
+  const onDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDropActive(true);
+  };
+
+  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(e)) return;
+    // Without preventDefault the browser refuses the drop and opens the file.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDropActive(false);
+  };
+
+  const onDrop = async (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDropActive(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    const images = files.filter((f) => f.type.startsWith('image/'));
+
+    if (images.length === 0) {
+      setError(
+        files.some((f) => f.type === 'application/pdf')
+          ? 'To add a PDF, use Import PDF in the page list.'
+          : 'Only image files can be dropped onto a page.',
+      );
+      return;
+    }
+
+    const at = toPage(e);
+    setError(null);
+    for (let i = 0; i < images.length; i++) {
+      try {
+        // Cascade multiple drops so they do not land exactly on top of
+        // each other and look like a single image.
+        addImageAt(await loadImageFile(images[i]), { x: at.x + i * 12, y: at.y + i * 12 });
+      } catch (err) {
+        setError(err instanceof ImageLoadError ? err.message : 'That image could not be added.');
+      }
+    }
+  };
+
   return (
     <div
       ref={layer}
@@ -391,7 +460,18 @@ export function ObjectLayer({ page, zoom }: Props) {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => void onDrop(e)}
     >
+      {dropActive && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-accent/10 ring-2 ring-accent">
+          <span className="rounded-md bg-accent px-3 py-1 text-sm font-medium text-white shadow">
+            Drop image here
+          </span>
+        </div>
+      )}
       {objects.map((o) => {
         const selected = selection.includes(o.id);
         const line = isLine(o) ? o : null;
