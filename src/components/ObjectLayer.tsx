@@ -8,6 +8,7 @@ import { SnapIndicators } from './SnapIndicators';
 import { ShapeObjectView } from './ShapeObjectView';
 import { TextObjectView } from './TextObjectView';
 import { ImageObjectView, CropPreview } from './ImageObjectView';
+import { objectBoxStyle } from './PageObjects';
 import {
   isBoxShape,
   isImage,
@@ -400,14 +401,9 @@ export function ObjectLayer({ page, zoom }: Props) {
             key={o.id}
             className="absolute"
             style={{
-              left: o.x * zoom,
-              top: o.y * zoom,
-              width: o.width * zoom,
-              height: o.height * zoom,
+              // Shared with the thumbnails so placement cannot drift.
+              ...objectBoxStyle(o, zoom),
               cursor: tool !== 'select' ? 'crosshair' : isText(o) ? 'text' : 'move',
-              // Rotating the wrapper means the selection outline and handles
-              // turn with the image rather than staying axis-aligned around it.
-              transform: isImage(o) && o.rotation ? `rotate(${o.rotation}deg)` : undefined,
             }}
             onPointerDown={(e) => beginMove(e, o)}
             onDoubleClick={(e) => {
