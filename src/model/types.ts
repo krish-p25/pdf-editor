@@ -124,6 +124,12 @@ export type EditorObject = TextObject | ShapeObject | ImageObject;
 export interface Doc {
   /** Storage key. Generated per upload, so the same file can be opened twice. */
   id: string;
+  /**
+   * The user-facing name. Editable, shown in the document list, used for the
+   * exported filename and written into the PDF's /Title metadata.
+   */
+  title: string;
+  /** Name of the file originally uploaded. Kept as provenance, never edited. */
   fileName: string;
   sourceBytes: Uint8Array;
   /** Array order IS the export order. */

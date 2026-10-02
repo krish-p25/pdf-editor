@@ -1,5 +1,6 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import { migrateDoc } from './migrate';
+import { titleFromFileName } from './title';
 import type { Doc, EditorObject, ObjectId, Page } from './types';
 
 const DB_NAME = 'pdf-editor';
@@ -22,6 +23,8 @@ const V1_KEY = 'current';
 
 interface StoredDocument {
   id: string;
+  /** Absent on records written before titles existed. */
+  title?: string;
   fileName: string;
   sourceBytes: ArrayBuffer;
   pages: Page[];
@@ -31,6 +34,7 @@ interface StoredDocument {
 
 export interface DocumentSummary {
   id: string;
+  title: string;
   fileName: string;
   pageCount: number;
   /** Epoch milliseconds. */
@@ -87,6 +91,9 @@ function db(): Promise<IDBPDatabase> {
 
 const summaryOf = (d: StoredDocument): DocumentSummary => ({
   id: d.id,
+  // Summaries written before titles existed fall back to the filename, so an
+  // older document is never listed without a name.
+  title: d.title ?? titleFromFileName(d.fileName),
   fileName: d.fileName,
   pageCount: d.pages.length,
   savedAt: d.savedAt,
@@ -106,6 +113,7 @@ export async function saveDocument(doc: Doc): Promise<boolean> {
   try {
     const record: StoredDocument = {
       id: doc.id,
+      title: doc.title,
       fileName: doc.fileName,
       sourceBytes: doc.sourceBytes.slice().buffer,
       pages: doc.pages,
@@ -138,6 +146,7 @@ export async function loadStoredDocument(id: string): Promise<Doc | null> {
     // A document saved before a schema change is upgraded on the way in.
     return migrateDoc({
       id: s.id,
+      title: s.title,
       fileName: s.fileName,
       sourceBytes: new Uint8Array(s.sourceBytes),
       pages: s.pages,
@@ -155,6 +164,8 @@ export async function listDocuments(): Promise<DocumentSummary[]> {
   try {
     const handle = await db();
     const all = (await handle.getAll(SUMMARIES)) as DocumentSummary[];
+    // Same fallback for summaries already on disk.
+    for (const s of all) s.title = s.title ?? titleFromFileName(s.fileName);
     return all.sort((a, b) => b.savedAt - a.savedAt);
   } catch {
     available = false;

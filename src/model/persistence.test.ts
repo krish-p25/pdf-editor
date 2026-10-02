@@ -24,6 +24,7 @@ const page = (id: string, sourceIndex: number | null = 0): Page => ({
 
 const doc = (over: Partial<Doc> = {}): Doc => ({
   id: newDocumentId(),
+  title: 'report',
   fileName: 'report.pdf',
   sourceBytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0xff]),
   pages: [page('p1', 0), page('p2', 1)],

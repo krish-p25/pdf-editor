@@ -268,6 +268,10 @@ export async function exportPdf(doc: Doc, fonts: FontSet): Promise<Uint8Array> {
   const out = await PDFDocument.create();
   out.registerFontkit(fontkit);
 
+  // Viewers show /Title in their window title and document properties, so
+  // the name the user chose follows the file rather than only the download.
+  out.setTitle(doc.title);
+
   // Embed only the variants actually used, and only once each.
   const used = new Set<FontVariant>();
   for (const o of Object.values(doc.objects)) {
