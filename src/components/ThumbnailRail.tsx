@@ -11,16 +11,20 @@ import { CSS } from '@dnd-kit/utilities';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { renderPage } from '../pdf/renderPage';
+import { displaySize } from '../geometry/coords';
+import { fitWithin } from '../geometry/images';
+import { PageObjects } from './PageObjects';
 import { useStore } from '../model/store';
-import type { Page } from '../model/types';
+import type { EditorObject, Page } from '../model/types';
 
 interface Props {
   proxy: PDFDocumentProxy;
   onImportPdf(file: File): void;
 }
 
-/** Usable width of a thumbnail inside the rail, in CSS pixels. */
-const THUMBNAIL_WIDTH_PX = 148;
+/** Usable area of a thumbnail inside the rail, in CSS pixels. */
+const THUMBNAIL_WIDTH_PX = 140;
+const THUMBNAIL_HEIGHT_PX = 186;
 
 export function ThumbnailRail({ proxy, onImportPdf }: Props) {
   const doc = useStore((s) => s.doc);
@@ -52,6 +56,7 @@ export function ThumbnailRail({ proxy, onImportPdf }: Props) {
               key={page.id}
               proxy={proxy}
               page={page}
+              objects={page.objectIds.map((id) => doc.objects[id]).filter(Boolean) as EditorObject[]}
               index={i}
               active={page.id === activePageId}
               canDelete={doc.pages.length > 1}
@@ -94,13 +99,14 @@ export function ThumbnailRail({ proxy, onImportPdf }: Props) {
 interface ThumbProps {
   proxy: PDFDocumentProxy;
   page: Page;
+  objects: EditorObject[];
   index: number;
   active: boolean;
   canDelete: boolean;
   onSelect(): void;
 }
 
-function Thumbnail({ proxy, page, index, active, canDelete, onSelect }: ThumbProps) {
+function Thumbnail({ proxy, page, objects, index, active, canDelete, onSelect }: ThumbProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: page.id,
   });
@@ -108,10 +114,11 @@ function Thumbnail({ proxy, page, index, active, canDelete, onSelect }: ThumbPro
   const rotatePage = useStore((s) => s.rotatePage);
   const [src, setSrc] = useState<string | null>(null);
 
-  // Scale to the box the thumbnail actually occupies rather than a fixed
-  // factor, so pages of any size fill it at the right resolution. renderPage
-  // applies the device pixel ratio on top.
-  const cssScale = THUMBNAIL_WIDTH_PX / page.width;
+  // Fit the page into the thumbnail box on BOTH axes, using its rotated size:
+  // a landscape or rotated page scaled by width alone would overflow.
+  const display = displaySize(page);
+  const fitted = fitWithin(display.width, display.height, THUMBNAIL_WIDTH_PX, THUMBNAIL_HEIGHT_PX);
+  const cssScale = fitted.width / Math.max(display.width, 0.001);
 
   // Thumbnails render lazily and the render cache keeps a long document from
   // stalling on load.
@@ -133,8 +140,6 @@ function Thumbnail({ proxy, page, index, active, canDelete, onSelect }: ThumbPro
     };
   }, [proxy, page.sourceIndex, cssScale]);
 
-  const swapped = page.rotation === 90 || page.rotation === 270;
-
   return (
     <div
       ref={setNodeRef}
@@ -151,22 +156,45 @@ function Thumbnail({ proxy, page, index, active, canDelete, onSelect }: ThumbPro
         }`}
       >
         <div className="flex aspect-[3/4] items-center justify-center overflow-hidden p-1">
-          {page.sourceIndex === null && (
-            <span className="text-xs italic text-slate-300">Blank</span>
-          )}
-          {src && (
-            <img
-              src={src}
-              alt={`Page ${index + 1}`}
-              draggable={false}
-              className="select-none"
+          {/*
+            Mirrors PageCanvas: an outer box in display space, an inner box in
+            page space carrying the rotation, with the raster and the objects
+            both inside. That is what lets objects sit over the page correctly
+            once it is rotated.
+          */}
+          <div
+            className="relative bg-white"
+            style={{ width: display.width * cssScale, height: display.height * cssScale }}
+          >
+            <div
+              className="absolute left-0 top-0 origin-top-left overflow-hidden"
               style={{
-                transform: `rotate(${page.rotation}deg)`,
-                maxHeight: swapped ? '72%' : '100%',
-                maxWidth: swapped ? '72%' : '100%',
+                width: page.width * cssScale,
+                height: page.height * cssScale,
+                transform: thumbRotation(
+                  page.rotation,
+                  page.width * cssScale,
+                  page.height * cssScale,
+                ),
               }}
-            />
-          )}
+            >
+              {src && (
+                <img
+                  src={src}
+                  alt={`Page ${index + 1}`}
+                  draggable={false}
+                  className="h-full w-full select-none"
+                />
+              )}
+              <PageObjects objects={objects} zoom={cssScale} />
+            </div>
+
+            {page.sourceIndex === null && objects.length === 0 && (
+              <span className="absolute inset-0 flex items-center justify-center text-xs italic text-slate-300">
+                Blank
+              </span>
+            )}
+          </div>
         </div>
         <div className="border-t border-edge py-1 text-center text-xs text-slate-500">
           {index + 1}
@@ -188,6 +216,20 @@ function Thumbnail({ proxy, page, index, active, canDelete, onSelect }: ThumbPro
       </div>
     </div>
   );
+}
+
+/** Rotate about the top-left, then translate so the page sits flush. */
+function thumbRotation(rotation: number, w: number, h: number): string | undefined {
+  switch (rotation) {
+    case 90:
+      return `translate(${h}px, 0) rotate(90deg)`;
+    case 180:
+      return `translate(${w}px, ${h}px) rotate(180deg)`;
+    case 270:
+      return `translate(0, ${w}px) rotate(270deg)`;
+    default:
+      return undefined;
+  }
 }
 
 function IconButton({
