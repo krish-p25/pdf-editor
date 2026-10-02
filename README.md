@@ -43,6 +43,14 @@ This one does the work locally. No upload means no privacy question to worry abo
 - Fill colour and opacity, outline colour, width and opacity
 - Corner radius on rectangles, adjustable head size on arrows
 
+### Images
+- **Insert an image** from the toolbar, or just **drag and drop** it onto a page
+- Scale it, crop it, rotate it and drag it anywhere
+- Accepts **PNG, JPEG, GIF, WebP, BMP, HEIC/HEIF and DNG/TIFF** - so photos straight off an iPhone or a camera card go in without converting them first
+- PNG and JPEG are embedded untouched, so a screenshot stays pixel-exact
+
+> **On HEIC and RAW:** no browser except Safari can decode HEIC, so a converter is downloaded on demand the first time you add one - nobody else pays for it. A DNG is undeveloped sensor data, so its embedded full-size JPEG preview is used; a DNG saved without a preview is refused rather than silently mangled.
+
 ### Precise placement
 - **Snapping** to other objects' edges and centres, to the page edges and centrelines, and to equal spacing between objects
 - The object you snapped *to* is highlighted, so you can see what you lined up with
