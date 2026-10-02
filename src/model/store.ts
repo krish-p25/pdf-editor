@@ -2,8 +2,19 @@ import { create } from 'zustand';
 import { displaySize } from '../geometry/coords';
 import { fitWithin, placeAtPoint, FULL_CROP } from '../geometry/images';
 import { createHistory } from './history';
+import { applySpanStyle, clearSpanKey, STYLE_KEYS, tidySpans } from './textSpans';
 import { normaliseTitle } from './title';
-import type { Doc, EditorObject, ObjectId, Page, PageId, Rotation, ToolId } from './types';
+import type {
+  Doc,
+  EditorObject,
+  ObjectId,
+  Page,
+  PageId,
+  Rotation,
+  SpanStyle,
+  TextObject,
+  ToolId,
+} from './types';
 
 let idCounter = 0;
 export const nextId = (prefix: string): string =>
@@ -35,6 +46,15 @@ interface State {
    */
   editSelectAll: boolean;
 
+  /**
+   * The characters highlighted inside a text object, if any.
+   *
+   * Keyed by object rather than kept inside the editing session, because a
+   * style control can take focus away from the textarea - a colour picker
+   * opens a native dialog - and the range still has to be there afterwards.
+   */
+  textSelection: { objectId: ObjectId; start: number; end: number } | null;
+
   /** Image currently in crop mode, if any. */
   croppingObjectId: ObjectId | null;
 
@@ -54,6 +74,14 @@ interface State {
   /** Open a text object for typing. Selects it too, so the panel follows. */
   beginEditing(id: ObjectId, selectAll?: boolean): void;
   endEditing(): void;
+
+  /** Record which characters are highlighted; a collapsed range clears it. */
+  setTextSelection(objectId: ObjectId, start: number, end: number): void;
+  /**
+   * Apply styling to the highlighted characters, or to the whole box when
+   * nothing is highlighted.
+   */
+  styleText(id: ObjectId, patch: SpanStyle): void;
 
   /** Enter or leave crop mode for an image. */
   setCropping(id: ObjectId | null): void;
@@ -141,6 +169,7 @@ export const useStore = create<State>((set, get) => {
     error: null,
     editingObjectId: null,
     editSelectAll: false,
+    textSelection: null,
     croppingObjectId: null,
 
     loadDoc(doc) {
@@ -154,6 +183,7 @@ export const useStore = create<State>((set, get) => {
         tool: 'select',
         editingObjectId: null,
         editSelectAll: false,
+        textSelection: null,
         croppingObjectId: null,
       });
     },
@@ -166,6 +196,7 @@ export const useStore = create<State>((set, get) => {
         selection: [],
         error: null,
         editingObjectId: null,
+        textSelection: null,
         croppingObjectId: null,
       });
     },
@@ -191,17 +222,81 @@ export const useStore = create<State>((set, get) => {
       set({ doc: { ...doc, title: normaliseTitle(title) } });
     },
 
-    select: (selection) => set({ selection }),
+    select: (selection) => set({ selection, textSelection: null }),
     clearSelection: () =>
-      set({ selection: [], editingObjectId: null, croppingObjectId: null }),
+      set({
+        selection: [],
+        editingObjectId: null,
+        textSelection: null,
+        croppingObjectId: null,
+      }),
 
     beginEditing(id, selectAll = false) {
       const o = get().doc?.objects[id];
       if (!o || o.kind !== 'text') return;
-      set({ editingObjectId: id, editSelectAll: selectAll, selection: [id], tool: 'select' });
+
+      // Already open: keep whatever is highlighted. A double-click inside the
+      // textarea selects a word and then bubbles out as a dblclick, so
+      // treating that as a fresh session would discard the selection the user
+      // just made.
+      if (get().editingObjectId === id) {
+        set({ selection: [id], tool: 'select' });
+        return;
+      }
+
+      set({
+        editingObjectId: id,
+        editSelectAll: selectAll,
+        selection: [id],
+        tool: 'select',
+        // A new editing session starts with nothing highlighted.
+        textSelection: null,
+      });
     },
 
     endEditing: () => set({ editingObjectId: null, editSelectAll: false }),
+
+    setTextSelection(objectId, start, end) {
+      // Normalise before testing for emptiness, so a range given back to
+      // front is still a range rather than being silently discarded.
+      const from = Math.min(start, end);
+      const to = Math.max(start, end);
+      set({ textSelection: to > from ? { objectId, start: from, end: to } : null });
+    },
+
+    styleText(id, patch) {
+      const sel = get().textSelection;
+      const highlighted = sel && sel.objectId === id && sel.end > sel.start;
+
+      mutate((doc) => {
+        const o = doc.objects[id];
+        if (!o || o.kind !== 'text') return;
+
+        if (highlighted && sel) {
+          doc.objects[id] = {
+            ...o,
+            spans: tidySpans(
+              applySpanStyle(o.spans, sel.start, sel.end, patch, o.text.length),
+            ),
+          };
+          return;
+        }
+
+        // Nothing highlighted: the box-level control is the final word, so it
+        // also clears any range the user had set to the opposite value.
+        let spans = o.spans;
+        for (const key of STYLE_KEYS) {
+          if (patch[key] !== undefined) spans = clearSpanKey(spans, key, o.text.length);
+        }
+
+        const next: TextObject = { ...o, spans: tidySpans(spans ?? []) };
+        if (patch.bold !== undefined) next.bold = patch.bold;
+        if (patch.italic !== undefined) next.italic = patch.italic;
+        if (patch.color !== undefined) next.color = patch.color;
+        if (patch.fontSize !== undefined) next.fontSize = patch.fontSize;
+        doc.objects[id] = next;
+      });
+    },
 
     setCropping(id) {
       if (id === null) {
@@ -285,7 +380,7 @@ export const useStore = create<State>((set, get) => {
           if (page) page.objectIds = page.objectIds.filter((x) => x !== id);
         }
       });
-      set({ selection: [], editingObjectId: null, croppingObjectId: null });
+      set({ selection: [], editingObjectId: null, textSelection: null, croppingObjectId: null });
     },
 
     bringToFront(id) {

@@ -1,8 +1,16 @@
 import type { ReactNode } from 'react';
 import { useStore } from '../model/store';
+import { defaultStyleOf, rangeStyle, type StyleKey } from '../model/textSpans';
 import { lineLength } from '../geometry/lines';
 import { FULL_CROP } from '../geometry/images';
-import { isBoxShape, isImage, isLine, isText, type EditorObject } from '../model/types';
+import {
+  isBoxShape,
+  isImage,
+  isLine,
+  isText,
+  type EditorObject,
+  type TextObject,
+} from '../model/types';
 
 export function PropertiesPanel() {
   const doc = useStore((s) => s.doc);
@@ -11,7 +19,6 @@ export function PropertiesPanel() {
   const deleteObjects = useStore((s) => s.deleteObjects);
   const bringToFront = useStore((s) => s.bringToFront);
   const sendToBack = useStore((s) => s.sendToBack);
-  const beginEditing = useStore((s) => s.beginEditing);
   const croppingId = useStore((s) => s.croppingObjectId);
   const setCropping = useStore((s) => s.setCropping);
 
@@ -31,58 +38,7 @@ export function PropertiesPanel() {
   return (
     <aside className="w-64 shrink-0 space-y-5 overflow-y-auto border-l border-edge bg-panel p-4">
       {isText(o) ? (
-        <Section title="Text">
-          <button
-            type="button"
-            onClick={() => beginEditing(o.id, false)}
-            className="w-full rounded-md border border-accent bg-white py-1.5 text-sm font-medium text-accent transition-colors hover:bg-blue-50"
-          >
-            Edit text
-          </button>
-          <div className="pb-1 text-xs text-slate-400">
-            Or double-click the box, or press Enter.
-          </div>
-          <Row label="Size">
-            <NumberInput
-              value={o.fontSize}
-              min={4}
-              max={200}
-              step={1}
-              onChange={(v) => set({ fontSize: v })}
-            />
-          </Row>
-          <Row label="Colour">
-            <ColorInput value={o.color} onChange={(v) => set({ color: v })} />
-          </Row>
-          <Row label="Line height">
-            <NumberInput
-              value={o.lineHeight}
-              min={0.8}
-              max={3}
-              step={0.1}
-              onChange={(v) => set({ lineHeight: v })}
-            />
-          </Row>
-          <Row label="Style">
-            <div className="flex gap-1">
-              <Toggle on={o.bold} onClick={() => set({ bold: !o.bold })} label="B" bold />
-              <Toggle on={o.italic} onClick={() => set({ italic: !o.italic })} label="I" italic />
-            </div>
-          </Row>
-          <Row label="Align">
-            <div className="flex gap-1">
-              {(['left', 'center', 'right'] as const).map((a) => (
-                <Toggle
-                  key={a}
-                  on={o.align === a}
-                  onClick={() => set({ align: a })}
-                  label={a === 'left' ? '⇤' : a === 'center' ? '↔' : '⇥'}
-                />
-              ))}
-            </div>
-          </Row>
-          <div className="pt-1 text-xs text-slate-400">Font family is always Inter.</div>
-        </Section>
+        <TextSection o={o} />
       ) : isImage(o) ? (
         <Section title="Image">
           <button
@@ -266,6 +222,123 @@ export function PropertiesPanel() {
 const round = (n: number) => Math.round(n * 10) / 10;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
+/**
+ * Controls for a text box.
+ *
+ * Size, colour, bold and italic apply to the highlighted characters when
+ * there are any, and to the whole box otherwise. The highlight is held per
+ * object rather than per editing session, because a control can take focus
+ * off the textarea — a colour picker opens a native dialog — and the range
+ * has to still be there afterwards.
+ *
+ * Line height and alignment stay box-level whatever is highlighted: one line
+ * box cannot have two heights, and one line cannot have two alignments.
+ */
+function TextSection({ o }: { o: TextObject }) {
+  const updateObject = useStore((s) => s.updateObject);
+  const beginEditing = useStore((s) => s.beginEditing);
+  const styleText = useStore((s) => s.styleText);
+  const textSelection = useStore((s) => s.textSelection);
+  const setTextSelection = useStore((s) => s.setTextSelection);
+
+  const highlight = textSelection?.objectId === o.id ? textSelection : null;
+  const { style, mixed } = highlight
+    ? rangeStyle(o.text, o.spans, defaultStyleOf(o), highlight.start, highlight.end)
+    : { style: defaultStyleOf(o), mixed: new Set<StyleKey>() };
+
+  return (
+    <Section title="Text">
+      <button
+        type="button"
+        onClick={() => beginEditing(o.id, false)}
+        className="w-full rounded-md border border-accent bg-white py-1.5 text-sm font-medium text-accent transition-colors hover:bg-blue-50"
+      >
+        Edit text
+      </button>
+      <div className="pb-1 text-xs text-slate-400">Or double-click the box, or press Enter.</div>
+
+      {highlight ? (
+        <div className="flex items-center justify-between gap-2 rounded-md bg-blue-50 px-2 py-1 text-xs text-accent">
+          <span>{highlight.end - highlight.start} characters highlighted</span>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setTextSelection(o.id, 0, 0)}
+            className="shrink-0 underline"
+          >
+            whole box
+          </button>
+        </div>
+      ) : (
+        <div className="text-xs text-slate-400">
+          Highlight text while editing to style only that part.
+        </div>
+      )}
+
+      <Row label="Size">
+        <NumberInput
+          value={style.fontSize}
+          min={4}
+          max={200}
+          step={1}
+          mixed={mixed.has('fontSize')}
+          onChange={(v) => styleText(o.id, { fontSize: v })}
+        />
+      </Row>
+      <Row label="Colour">
+        <ColorInput
+          value={style.color}
+          mixed={mixed.has('color')}
+          onChange={(v) => styleText(o.id, { color: v })}
+        />
+      </Row>
+      <Row label="Style">
+        <div className="flex gap-1">
+          <Toggle
+            on={style.bold}
+            mixed={mixed.has('bold')}
+            onClick={() => styleText(o.id, { bold: !style.bold })}
+            label="B"
+            bold
+          />
+          <Toggle
+            on={style.italic}
+            mixed={mixed.has('italic')}
+            onClick={() => styleText(o.id, { italic: !style.italic })}
+            label="I"
+            italic
+          />
+        </div>
+      </Row>
+
+      <Row label="Line height">
+        <NumberInput
+          value={o.lineHeight}
+          min={0.8}
+          max={3}
+          step={0.1}
+          onChange={(v) => updateObject(o.id, { lineHeight: v })}
+        />
+      </Row>
+      <Row label="Align">
+        <div className="flex gap-1">
+          {(['left', 'center', 'right'] as const).map((a) => (
+            <Toggle
+              key={a}
+              on={o.align === a}
+              onClick={() => updateObject(o.id, { align: a })}
+              label={a === 'left' ? '⇤' : a === 'center' ? '↔' : '⇥'}
+            />
+          ))}
+        </div>
+      </Row>
+      <div className="pt-1 text-xs text-slate-400">
+        Line height and alignment apply to the whole box. Font family is always Inter.
+      </div>
+    </Section>
+  );
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
@@ -292,36 +365,54 @@ function NumberInput({
   min,
   max,
   step,
+  mixed,
 }: {
   value: number;
   onChange(v: number): void;
   min?: number;
   max?: number;
   step?: number;
+  /** The highlight covers more than one value, so none of them is the truth. */
+  mixed?: boolean;
 }) {
   return (
     <input
       type="number"
-      value={value}
+      value={mixed ? '' : value}
+      placeholder={mixed ? 'Mixed' : undefined}
+      title={mixed ? 'The highlighted text mixes several values' : undefined}
       min={min}
       max={max}
       step={step}
       onChange={(e) => {
         const v = Number(e.target.value);
-        if (!Number.isNaN(v)) onChange(v);
+        if (e.target.value !== '' && !Number.isNaN(v)) onChange(v);
       }}
-      className="w-24 rounded border border-edge px-2 py-1 text-right text-sm tabular-nums"
+      className={`w-24 rounded border px-2 py-1 text-right text-sm tabular-nums ${
+        mixed ? 'border-amber-400 placeholder:text-amber-600' : 'border-edge'
+      }`}
     />
   );
 }
 
-function ColorInput({ value, onChange }: { value: string; onChange(v: string): void }) {
+function ColorInput({
+  value,
+  onChange,
+  mixed,
+}: {
+  value: string;
+  onChange(v: string): void;
+  mixed?: boolean;
+}) {
   return (
     <input
       type="color"
       value={value === 'none' ? '#ffffff' : value}
+      title={mixed ? 'The highlighted text mixes several colours' : undefined}
       onChange={(e) => onChange(e.target.value)}
-      className="h-7 w-24 cursor-pointer rounded border border-edge"
+      className={`h-7 w-24 cursor-pointer rounded border ${
+        mixed ? 'border-amber-400' : 'border-edge'
+      }`}
     />
   );
 }
@@ -332,20 +423,31 @@ function Toggle({
   label,
   bold,
   italic,
+  mixed,
 }: {
   on: boolean;
   onClick(): void;
   label: string;
   bold?: boolean;
   italic?: boolean;
+  /** Part of the highlight has this on and part has it off. */
+  mixed?: boolean;
 }) {
   return (
     <button
       type="button"
+      // Keep the textarea focused, so clicking a control does not discard the
+      // very highlight the control is about to style.
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
-      aria-pressed={on}
+      aria-pressed={mixed ? 'mixed' : on}
+      title={mixed ? 'Mixed across the highlighted text' : undefined}
       className={`h-7 w-7 rounded border text-sm ${
-        on ? 'border-accent bg-accent text-white' : 'border-edge bg-white text-slate-600'
+        mixed
+          ? 'border-amber-400 bg-amber-50 text-amber-700'
+          : on
+            ? 'border-accent bg-accent text-white'
+            : 'border-edge bg-white text-slate-600'
       }`}
       style={{ fontWeight: bold ? 700 : 400, fontStyle: italic ? 'italic' : 'normal' }}
     >

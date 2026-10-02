@@ -37,9 +37,39 @@ export interface BaseObject extends Rect {
 
 export type TextAlign = 'left' | 'center' | 'right';
 
+/**
+ * Styling that may be overridden for part of a text box. Every key is
+ * optional: an absent key means "inherit the box's own value".
+ */
+export interface SpanStyle {
+  bold?: boolean;
+  italic?: boolean;
+  color?: string;
+  fontSize?: number;
+}
+
+/**
+ * A styling override applied to the characters in `[start, end)` of a text
+ * object's `text`.
+ *
+ * Styling is modelled as sparse overrides on top of the object's own
+ * bold/italic/color/fontSize rather than as a list of styled runs, because
+ * that keeps `text` the single authoritative string. The textarea, the
+ * placeholder logic and the empty-box check all read it directly, and a
+ * document saved before this existed simply has no spans — which is exactly
+ * the old uniform behaviour, so nothing on disk needs migrating.
+ */
+export interface StyleSpan extends SpanStyle {
+  /** Inclusive character offset. */
+  start: number;
+  /** Exclusive character offset. */
+  end: number;
+}
+
 export interface TextObject extends BaseObject {
   kind: 'text';
   text: string;
+  /** Default size for any character no span overrides. */
   fontSize: number;
   color: string;
   bold: boolean;
@@ -47,6 +77,11 @@ export interface TextObject extends BaseObject {
   align: TextAlign;
   /** Multiplier applied to fontSize to get the line box height. */
   lineHeight: number;
+  /**
+   * Per-range style overrides, normalised: sorted, non-overlapping, non-empty
+   * and clipped to the text. Absent or empty means the whole box is uniform.
+   */
+  spans?: StyleSpan[];
 }
 
 export type BoxShapeKind = 'rect' | 'ellipse' | 'triangle';

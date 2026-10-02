@@ -487,7 +487,9 @@ export function ObjectLayer({ page, zoom }: Props) {
             }}
             onPointerDown={(e) => beginMove(e, o)}
             onDoubleClick={(e) => {
-              if (isText(o)) {
+              // While the box is already open, a double-click is the user
+              // selecting a word inside the textarea. Leave it alone.
+              if (isText(o) && editingId !== o.id) {
                 e.stopPropagation();
                 beginEditing(o.id, false);
               }

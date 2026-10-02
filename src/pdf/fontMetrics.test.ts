@@ -52,7 +52,8 @@ describe('layoutText', () => {
 
   it('produces one empty line for empty input so the caret has a home', () => {
     const r = layoutText(m, '', 12, 100, 1.2);
-    expect(r.lines).toEqual([{ text: '', width: 0 }]);
+    expect(r.lines).toHaveLength(1);
+    expect(r.lines[0]).toMatchObject({ text: '', width: 0, runs: [] });
     expect(r.height).toBeCloseTo(12 * 1.2, 6);
   });
 

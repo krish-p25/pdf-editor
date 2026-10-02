@@ -1,6 +1,15 @@
 import { PDFDocument, degrees, rgb, type PDFFont, type PDFPage, type RGB } from '@cantoo/pdf-lib';
 import fontkit from '@cantoo/fontkit';
-import { layoutText, lineX, variantOf, type FontMetrics, type FontVariant } from './fontMetrics';
+import {
+  layoutStyledText,
+  lineX,
+  variantOf,
+  variantsOf,
+  type FontMetrics,
+  type FontVariant,
+  type MetricsFor,
+} from './fontMetrics';
+import { defaultStyleOf } from '../model/textSpans';
 import { rectToPdf } from '../geometry/coords';
 import { arrowHead } from '../geometry/lines';
 import { cropPixels, rotatedDrawAnchor, FULL_CROP } from '../geometry/images';
@@ -33,29 +42,50 @@ export function hexToRgb(hex: string): RGB {
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
 }
 
+/**
+ * Draw a text box one styled run at a time.
+ *
+ * A run is a stretch of characters sharing a font variant, size and colour,
+ * which is the largest unit a single drawText call can express. Runs on a
+ * line share one baseline, so mixed sizes sit on the line together rather
+ * than each floating in its own box.
+ */
 function drawTextObject(
   page: PDFPage,
   o: TextObject,
-  metrics: FontMetrics,
-  font: PDFFont,
+  fonts: FontSet,
+  embedded: Record<FontVariant, PDFFont>,
   pageHeight: number,
 ): void {
-  const layout = layoutText(metrics, o.text, o.fontSize, o.width, o.lineHeight);
-  const color = hexToRgb(o.color);
+  const metrics: MetricsFor = (s) => fonts[variantOf(s.bold, s.italic)];
+  const layout = layoutStyledText(
+    metrics,
+    o.text,
+    o.spans,
+    defaultStyleOf(o),
+    o.width,
+    o.lineHeight,
+  );
 
   layout.lines.forEach((line, i) => {
     if (line.text === '') return;
     const xOffset = lineX(layout, i, o.align, o.width);
     // Baseline measured from the top of the text box, then flipped into PDF
     // user space where y grows upward. Identical arithmetic to the DOM view.
-    const baselineFromTop = i * layout.lineBoxHeight + layout.baselineOffset;
-    page.drawText(line.text, {
-      x: o.x + xOffset,
-      y: pageHeight - (o.y + baselineFromTop),
-      size: o.fontSize,
-      font,
-      color,
-    });
+    const baselineFromTop = line.top + line.baselineOffset;
+
+    for (const run of line.runs) {
+      if (run.text === '') continue;
+      const font = embedded[variantOf(run.style.bold, run.style.italic)];
+      if (!font) continue;
+      page.drawText(run.text, {
+        x: o.x + xOffset + run.x,
+        y: pageHeight - (o.y + baselineFromTop),
+        size: run.style.fontSize,
+        font,
+        color: hexToRgb(run.style.color),
+      });
+    }
   });
 }
 
@@ -275,7 +305,9 @@ export async function exportPdf(doc: Doc, fonts: FontSet): Promise<Uint8Array> {
   // Embed only the variants actually used, and only once each.
   const used = new Set<FontVariant>();
   for (const o of Object.values(doc.objects)) {
-    if (isText(o)) used.add(variantOf(o.bold, o.italic));
+    // A box can need several variants at once now that part of it may be
+    // bold or italic on its own.
+    if (isText(o)) for (const v of variantsOf(o, o.spans)) used.add(v);
   }
 
   const embedded = {} as Record<FontVariant, PDFFont>;
@@ -308,9 +340,7 @@ export async function exportPdf(doc: Doc, fonts: FontSet): Promise<Uint8Array> {
       const o = doc.objects[id];
       if (!o) continue;
       if (isText(o)) {
-        const variant = variantOf(o.bold, o.italic);
-        const font = embedded[variant];
-        if (font) drawTextObject(pdfPage, o, fonts[variant], font, modelPage.height);
+        drawTextObject(pdfPage, o, fonts, embedded, modelPage.height);
       } else if (isImage(o)) {
         await drawImageObject(out, pdfPage, o, modelPage.height);
       } else if (isLine(o)) {

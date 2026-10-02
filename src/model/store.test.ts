@@ -41,9 +41,13 @@ const doc = (): Doc => ({
   sourceBytes: new Uint8Array([1, 2, 3]),
   pages: [
     { id: 'p1', sourceIndex: 0, rotation: 0, width: 600, height: 800, objectIds: ['t1', 's1'] },
-    { id: 'p2', sourceIndex: 1, rotation: 0, width: 600, height: 800, objectIds: [] },
+    { id: 'p2', sourceIndex: 1, rotation: 0, width: 600, height: 800, objectIds: ['t2'] },
   ],
-  objects: { t1: { ...textObject }, s1: { ...shapeObject } },
+  objects: {
+    t1: { ...textObject },
+    t2: { ...textObject, id: 't2', pageId: 'p2' },
+    s1: { ...shapeObject },
+  },
 });
 
 beforeEach(() => {
@@ -448,5 +452,182 @@ describe('dropping an image at a point', () => {
     useStore.getState().closeDoc();
     useStore.getState().addImageAt(img, { x: 100, y: 100 });
     expect(useStore.getState().doc).toBeNull();
+  });
+});
+
+describe('highlighting text', () => {
+  it('records a highlighted range against its object', () => {
+    useStore.getState().setTextSelection('t1', 1, 4);
+    expect(useStore.getState().textSelection).toEqual({ objectId: 't1', start: 1, end: 4 });
+  });
+
+  it('treats a collapsed range as no highlight', () => {
+    useStore.getState().setTextSelection('t1', 2, 2);
+    expect(useStore.getState().textSelection).toBeNull();
+  });
+
+  it('normalises a range dragged right to left', () => {
+    useStore.getState().setTextSelection('t1', 4, 1);
+    expect(useStore.getState().textSelection).toMatchObject({ start: 1, end: 4 });
+  });
+
+  it('forgets the range when another object is selected', () => {
+    useStore.getState().setTextSelection('t1', 1, 4);
+    useStore.getState().select(['s1']);
+    expect(useStore.getState().textSelection).toBeNull();
+  });
+
+  it('forgets the range when a new editing session begins', () => {
+    useStore.getState().setTextSelection('t1', 1, 4);
+    useStore.getState().beginEditing('t1');
+    expect(useStore.getState().textSelection).toBeNull();
+  });
+
+  it('keeps the range when the textarea merely loses focus', () => {
+    // A colour picker opens a native dialog and blurs the textarea; the range
+    // has to survive that or the control would style the wrong thing.
+    useStore.getState().beginEditing('t1');
+    useStore.getState().setTextSelection('t1', 1, 4);
+    useStore.getState().endEditing();
+    expect(useStore.getState().textSelection).toMatchObject({ start: 1, end: 4 });
+  });
+});
+
+describe('styling text', () => {
+  const text = () => useStore.getState().doc!.objects.t1 as TextObject;
+
+  it('styles only the highlighted characters', () => {
+    useStore.getState().setTextSelection('t1', 0, 2);
+    useStore.getState().styleText('t1', { bold: true });
+
+    expect(text().spans).toEqual([{ start: 0, end: 2, bold: true }]);
+    // The box default is untouched, so the rest of the text stays as it was.
+    expect(text().bold).toBe(false);
+  });
+
+  it('styles the whole box when nothing is highlighted', () => {
+    useStore.getState().styleText('t1', { bold: true });
+    expect(text().bold).toBe(true);
+    expect(text().spans).toBeUndefined();
+  });
+
+  it('applies a colour to just the highlight', () => {
+    useStore.getState().setTextSelection('t1', 1, 3);
+    useStore.getState().styleText('t1', { color: '#ff0000' });
+    expect(text().spans).toEqual([{ start: 1, end: 3, color: '#ff0000' }]);
+    expect(text().color).toBe('#000000');
+  });
+
+  it('applies a font size to just the highlight', () => {
+    useStore.getState().setTextSelection('t1', 0, 5);
+    useStore.getState().styleText('t1', { fontSize: 32 });
+    expect(text().spans).toEqual([{ start: 0, end: 5, fontSize: 32 }]);
+    expect(text().fontSize).toBe(14);
+  });
+
+  it('layers a second style onto the same highlight', () => {
+    useStore.getState().setTextSelection('t1', 0, 2);
+    useStore.getState().styleText('t1', { bold: true });
+    useStore.getState().styleText('t1', { italic: true });
+    expect(text().spans).toEqual([{ start: 0, end: 2, bold: true, italic: true }]);
+  });
+
+  it('splits a span when a narrower highlight is styled', () => {
+    useStore.getState().setTextSelection('t1', 0, 5);
+    useStore.getState().styleText('t1', { bold: true });
+    useStore.getState().setTextSelection('t1', 1, 2);
+    useStore.getState().styleText('t1', { color: '#00ff00' });
+
+    expect(text().spans).toHaveLength(3);
+    expect(text().spans![1]).toEqual({ start: 1, end: 2, bold: true, color: '#00ff00' });
+  });
+
+  it('turns a style off again over the same highlight', () => {
+    useStore.getState().setTextSelection('t1', 0, 2);
+    useStore.getState().styleText('t1', { bold: true });
+    useStore.getState().styleText('t1', { bold: false });
+    expect(text().spans).toEqual([{ start: 0, end: 2, bold: false }]);
+  });
+
+  it('lets a whole-box style override a range that was styled by hand', () => {
+    // Otherwise "make everything bold" would visibly skip the words the user
+    // had explicitly un-bolded, which reads as the control being broken.
+    useStore.getState().setTextSelection('t1', 0, 2);
+    useStore.getState().styleText('t1', { bold: false });
+    useStore.getState().setTextSelection('t1', 0, 0);
+    useStore.getState().styleText('t1', { bold: true });
+
+    expect(text().bold).toBe(true);
+    expect(text().spans).toBeUndefined();
+  });
+
+  it('leaves unrelated span properties alone when the box is restyled', () => {
+    useStore.getState().setTextSelection('t1', 0, 2);
+    useStore.getState().styleText('t1', { color: '#ff0000' });
+    useStore.getState().setTextSelection('t1', 0, 0);
+    useStore.getState().styleText('t1', { bold: true });
+
+    expect(text().bold).toBe(true);
+    expect(text().spans).toEqual([{ start: 0, end: 2, color: '#ff0000' }]);
+  });
+
+  it('ignores a highlight recorded against a different object', () => {
+    useStore.getState().setTextSelection('s1', 0, 2);
+    useStore.getState().styleText('t1', { bold: true });
+    expect(text().bold).toBe(true);
+    expect(text().spans).toBeUndefined();
+  });
+
+  it('does nothing to a shape', () => {
+    useStore.getState().styleText('s1', { bold: true });
+    expect(useStore.getState().doc!.objects.s1).toMatchObject({ kind: 'rect' });
+  });
+
+  it('is undoable as one step', () => {
+    useStore.getState().setTextSelection('t1', 0, 2);
+    useStore.getState().styleText('t1', { bold: true });
+    useStore.getState().undo();
+    expect((useStore.getState().doc!.objects.t1 as TextObject).spans).toBeUndefined();
+  });
+});
+
+describe('reopening a text box that is already open', () => {
+  it('keeps the highlight when beginEditing is called again', () => {
+    // A double-click inside the textarea selects a word and then bubbles out
+    // as a dblclick. Treating that as a fresh session used to discard the
+    // selection the user had just made, so styling fell back to the whole box.
+    useStore.getState().beginEditing('t1');
+    useStore.getState().setTextSelection('t1', 1, 4);
+    useStore.getState().beginEditing('t1');
+
+    expect(useStore.getState().textSelection).toMatchObject({ start: 1, end: 4 });
+    expect(useStore.getState().editingObjectId).toBe('t1');
+  });
+
+  it('still clears the highlight when a different box is opened', () => {
+    useStore.getState().beginEditing('t1');
+    useStore.getState().setTextSelection('t1', 1, 4);
+    useStore.getState().beginEditing('t2');
+
+    expect(useStore.getState().textSelection).toBeNull();
+  });
+
+  it('does not reset selectAll on a repeated call', () => {
+    // Re-entering must not re-select everything, or one keystroke would wipe
+    // the text the user came back to edit.
+    useStore.getState().beginEditing('t1', false);
+    useStore.getState().beginEditing('t1', true);
+    expect(useStore.getState().editSelectAll).toBe(false);
+  });
+
+  it('styles only the highlight after a repeated beginEditing', () => {
+    useStore.getState().beginEditing('t1');
+    useStore.getState().setTextSelection('t1', 0, 2);
+    useStore.getState().beginEditing('t1');
+    useStore.getState().styleText('t1', { bold: true });
+
+    const t = useStore.getState().doc!.objects.t1 as TextObject;
+    expect(t.spans).toEqual([{ start: 0, end: 2, bold: true }]);
+    expect(t.bold).toBe(false);
   });
 });
