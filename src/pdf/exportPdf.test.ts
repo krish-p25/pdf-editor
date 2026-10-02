@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { PDFDocument } from '@cantoo/pdf-lib';
 import { exportPdf, hexToRgb, type FontSet } from './exportPdf';
-import { createMetrics, layoutText, lineX } from './fontMetrics';
+import { createMetrics, layoutStyledText, layoutText, lineX } from './fontMetrics';
+import { defaultStyleOf } from '../model/textSpans';
 import { drawnTextOnPage } from './contentStream';
 import type { Doc, ImageObject, Page, TextObject } from '../model/types';
 
@@ -394,5 +395,132 @@ describe('export round-trip: drawn text matches layoutText', () => {
     const drawn = (await drawnTextOnPage(out, 0)).filter((d) => d.font.startsWith('Inter'));
 
     expect(drawn[0].x).toBeCloseTo(o.x + (200 - layout.lines[0].width) / 2, 2);
+  });
+});
+
+describe('export round-trip: styled runs', () => {
+  // Part of a box can now be bold, italic, a different size or a different
+  // colour. Each of those is a separate drawText, and this is what proves the
+  // exporter positions them the way layoutStyledText said to.
+  const metrics = (s: { bold: boolean; italic: boolean }) =>
+    s.bold && s.italic ? fonts.boldItalic : s.bold ? fonts.bold : s.italic ? fonts.italic : fonts.regular;
+
+  const styled = (o: TextObject) =>
+    layoutStyledText(metrics, o.text, o.spans, defaultStyleOf(o), o.width, o.lineHeight);
+
+  const inter = async (out: Uint8Array) =>
+    (await drawnTextOnPage(out, 0)).filter((d) => d.font.startsWith('Inter'));
+
+  // pdf-lib gives the font a fresh random resource key on every setFont, so
+  // two draws of the SAME font have different keys. The base name is what
+  // identifies the variant.
+  const variant = (name: string) => name.replace(/-\d+$/, '');
+
+  it('draws a bold span as its own operation in the bold font', async () => {
+    const o = text({ text: 'Hello world', spans: [{ start: 0, end: 5, bold: true }] });
+    const drawn = await inter(await exportPdf(doc([page('a', 0, ['t1'])], { t1: o }), fonts));
+
+    expect(drawn).toHaveLength(2);
+    expect(variant(drawn[0].font)).toBe('Inter-Bold');
+    expect(variant(drawn[1].font)).toBe('Inter-Regular');
+  });
+
+  it('keeps every run on a line at one baseline', async () => {
+    const o = text({ text: 'Hello world', spans: [{ start: 0, end: 5, bold: true }] });
+    const drawn = await inter(await exportPdf(doc([page('a', 0, ['t1'])], { t1: o }), fonts));
+
+    expect(drawn[0].y).toBeCloseTo(drawn[1].y, 4);
+  });
+
+  it('places each run at the offset the layout measured', async () => {
+    const o = text({ text: 'Hello world', spans: [{ start: 0, end: 5, bold: true }] });
+    const out = await exportPdf(doc([page('a', 0, ['t1'])], { t1: o }), fonts);
+    const drawn = await inter(out);
+    const layout = styled(o);
+
+    expect(drawn).toHaveLength(layout.lines[0].runs.length);
+    for (let i = 0; i < drawn.length; i++) {
+      expect(drawn[i].x).toBeCloseTo(o.x + layout.lines[0].runs[i].x, 2);
+    }
+  });
+
+  it('draws a resized span at its own size', async () => {
+    const o = text({ text: 'small BIG', spans: [{ start: 6, end: 9, fontSize: 28 }] });
+    const drawn = await inter(await exportPdf(doc([page('a', 0, ['t1'])], { t1: o }), fonts));
+
+    expect(drawn.map((d) => d.size).sort((a, b) => a - b)).toEqual([14, 28]);
+  });
+
+  it('puts the baseline below the tallest run on the line', async () => {
+    const o = text({ text: 'small BIG', spans: [{ start: 6, end: 9, fontSize: 28 }] });
+    const out = await exportPdf(doc([page('a', 0, ['t1'])], { t1: o }), fonts);
+    const drawn = await inter(out);
+    const layout = styled(o);
+    const line = layout.lines[0];
+
+    for (const d of drawn) {
+      expect(d.y).toBeCloseTo(800 - (o.y + line.top + line.baselineOffset), 2);
+    }
+  });
+
+  it('splits a colour change into its own operation in the same font', async () => {
+    const o = text({ text: 'red blue', spans: [{ start: 0, end: 3, color: '#00ff00' }] });
+    const drawn = await inter(await exportPdf(doc([page('a', 0, ['t1'])], { t1: o }), fonts));
+
+    expect(drawn).toHaveLength(2);
+    expect(variant(drawn[0].font)).toBe(variant(drawn[1].font));
+    expect(drawn[0].size).toBe(drawn[1].size);
+  });
+
+  it('embeds every variant the spans require', async () => {
+    const o = text({
+      text: 'plain bold italic both',
+      spans: [
+        { start: 6, end: 10, bold: true },
+        { start: 11, end: 17, italic: true },
+        { start: 18, end: 22, bold: true, italic: true },
+      ],
+    });
+    const drawn = await inter(await exportPdf(doc([page('a', 0, ['t1'])], { t1: o }), fonts));
+    const used = new Set(drawn.map((d) => variant(d.font)));
+
+    expect([...used].sort()).toEqual([
+      'Inter-Bold',
+      'Inter-BoldItalic',
+      'Inter-Italic',
+      'Inter-Regular',
+    ]);
+  });
+
+  it('keeps a styled box that wraps consistent with its layout', async () => {
+    const o = text({
+      text: 'The quick brown fox jumps over the lazy dog',
+      width: 120,
+      spans: [{ start: 4, end: 9, bold: true, fontSize: 20 }],
+    });
+    const out = await exportPdf(doc([page('a', 0, ['t1'])], { t1: o }), fonts);
+    const drawn = await inter(out);
+    const layout = styled(o);
+
+    const expected = layout.lines.reduce((n, l) => n + l.runs.filter((r) => r.text !== '').length, 0);
+    expect(drawn).toHaveLength(expected);
+
+    let k = 0;
+    for (let i = 0; i < layout.lines.length; i++) {
+      const line = layout.lines[i];
+      const offset = lineX(layout, i, o.align, o.width);
+      for (const run of line.runs) {
+        if (run.text === '') continue;
+        expect(drawn[k].x).toBeCloseTo(o.x + offset + run.x, 2);
+        expect(drawn[k].y).toBeCloseTo(800 - (o.y + line.top + line.baselineOffset), 2);
+        k++;
+      }
+    }
+  });
+
+  it('still draws an unstyled box as a single operation per line', async () => {
+    const o = text({ text: 'Hello world' });
+    const drawn = await inter(await exportPdf(doc([page('a', 0, ['t1'])], { t1: o }), fonts));
+    expect(drawn).toHaveLength(1);
   });
 });

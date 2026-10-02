@@ -35,6 +35,8 @@ This one does the work locally. No upload means no privacy question to worry abo
 ### Adding text to a PDF
 - Draw a text box anywhere on the page and type
 - Set **size, colour, bold, italic, alignment and line height**
+- **Style part of a box, not all of it** — highlight some words while editing and bold, italic, colour and size apply to just that stretch; <kbd>Ctrl</kbd>+<kbd>B</kbd> and <kbd>Ctrl</kbd>+<kbd>I</kbd> work on the highlight too
+- With nothing highlighted, the controls apply to the whole box, and a control shows amber when the highlight mixes two settings
 - Text is exported as **real, selectable, searchable PDF text** — not a flattened image
 - Set in [Inter](https://rsms.me/inter/), embedded in the exported file so it renders identically everywhere
 
@@ -46,10 +48,10 @@ This one does the work locally. No upload means no privacy question to worry abo
 ### Images
 - **Insert an image** from the toolbar, or just **drag and drop** it onto a page
 - Scale it, crop it, rotate it and drag it anywhere
-- Accepts **PNG, JPEG, GIF, WebP, BMP, HEIC/HEIF and DNG/TIFF** - so photos straight off an iPhone or a camera card go in without converting them first
+- Accepts **PNG, JPEG, GIF, WebP, BMP, HEIC/HEIF and DNG/TIFF** — so photos straight off an iPhone or a camera card go in without converting them first
 - PNG and JPEG are embedded untouched, so a screenshot stays pixel-exact
 
-> **On HEIC and RAW:** no browser except Safari can decode HEIC, so a converter is downloaded on demand the first time you add one - nobody else pays for it. A DNG is undeveloped sensor data, so its embedded full-size JPEG preview is used; a DNG saved without a preview is refused rather than silently mangled.
+> **On HEIC and RAW:** no browser except Safari can decode HEIC, so a converter is downloaded on demand the first time you add one — nobody else pays for it. A DNG is undeveloped sensor data, so its embedded full-size JPEG preview is used; a DNG saved without a preview is refused rather than silently mangled.
 
 ### Precise placement
 - **Snapping** to other objects' edges and centres, to the page edges and centrelines, and to equal spacing between objects
@@ -70,6 +72,7 @@ This is an **overlay editor** — it adds content on top of your pages. It does 
 | <kbd>R</kbd> / <kbd>O</kbd> / <kbd>Y</kbd> | Rectangle / ellipse / triangle |
 | <kbd>L</kbd> / <kbd>A</kbd> | Line / arrow |
 | <kbd>Enter</kbd> or <kbd>F2</kbd> | Edit the selected text box |
+| <kbd>Ctrl</kbd>+<kbd>B</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd> | Bold / italic the highlighted text while editing |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> | Undo / redo |
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> / <kbd>D</kbd> | Copy / paste / duplicate |
 | <kbd>Ctrl</kbd>+<kbd>A</kbd> | Select everything on the page |

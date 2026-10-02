@@ -1,5 +1,6 @@
 import fontkit from '@cantoo/fontkit';
-import type { TextAlign } from '../model/types';
+import { resolveChars, type ResolvedStyle } from '../model/textSpans';
+import type { StyleSpan, TextAlign } from '../model/types';
 
 export interface FontMetrics {
   /** Raw font bytes, reused for pdf-lib embedding and the FontFace API. */
@@ -51,27 +52,228 @@ export function createMetrics(bytes: Uint8Array): FontMetrics {
   };
 }
 
+/**
+ * One stretch of characters on a line that shares a single styling.
+ *
+ * `x` and `ascent` are what let the DOM reproduce the exporter arithmetic
+ * instead of approximating it: each run is positioned at its measured offset
+ * and lifted so its own baseline lands on the shared baseline of the line.
+ */
+export interface LaidOutRun {
+  text: string;
+  /** Offset from the start of the line, in points. */
+  x: number;
+  width: number;
+  style: ResolvedStyle;
+  /** Ascent at this run font size, in points. */
+  ascent: number;
+  /** Descent at this run font size, in points. Negative. */
+  descent: number;
+}
+
 export interface LaidOutLine {
   text: string;
   width: number;
+  /** The styled pieces of this line, left to right. */
+  runs: LaidOutRun[];
+  /** Top of this line box, relative to the top of the text, in points. */
+  top: number;
+  /** Height of this line box, in points. Driven by its largest font size. */
+  height: number;
+  /** Distance from the top of this line box to its baseline, in points. */
+  baselineOffset: number;
 }
 
 export interface TextLayout {
   lines: LaidOutLine[];
-  /** Height of one line box, in points. */
+  /** Line box height for the default style of the box, in points. */
   lineBoxHeight: number;
-  /** Distance from a line box's top to its baseline, in points. */
+  /** Baseline offset for the default style of the box, in points. */
   baselineOffset: number;
   /** Total height of the laid-out text, in points. */
   height: number;
 }
 
+/** Supplies metrics for a styling. Every variant in use must resolve. */
+export type MetricsFor = (style: { bold: boolean; italic: boolean }) => FontMetrics;
+
+const ascentOf = (m: FontMetrics, size: number) => (m.ascent / m.unitsPerEm) * size;
+const descentOf = (m: FontMetrics, size: number) => (m.descent / m.unitsPerEm) * size;
+
 /**
- * Break `text` into lines that fit within `maxWidth`.
+ * Break styled text into lines that fit within `maxWidth`.
  *
  * This is the single source of truth for line breaking. Both the DOM renderer
  * and the PDF exporter consume its output, so the browser is never permitted
  * to make a wrapping decision of its own.
+ *
+ * Mixed styling makes measurement per-character rather than per-box: the width
+ * of a candidate line is the sum of its runs, each measured with its own
+ * variant and size. Line height and baseline come from the largest font on
+ * the line, so one big word cannot overlap the line above it.
+ */
+export function layoutStyledText(
+  getMetrics: MetricsFor,
+  text: string,
+  spans: readonly StyleSpan[] | undefined,
+  defaults: ResolvedStyle,
+  maxWidth: number,
+  lineHeightMultiplier: number,
+): TextLayout {
+  const chars = resolveChars(text, spans, defaults);
+  const styleOf = (i: number): ResolvedStyle => chars[i] ?? defaults;
+
+  /** Walk `[from, to)` as maximal runs of one style; styles are interned. */
+  const eachRun = (
+    from: number,
+    to: number,
+    visit: (start: number, end: number, style: ResolvedStyle) => void,
+  ): void => {
+    let i = from;
+    while (i < to) {
+      const style = chars[i];
+      let j = i + 1;
+      while (j < to && chars[j] === style) j++;
+      visit(i, j, style);
+      i = j;
+    }
+  };
+
+  const measure = (from: number, to: number): number => {
+    let total = 0;
+    eachRun(from, to, (a, b, style) => {
+      total += getMetrics(style).measureText(text.slice(a, b), style.fontSize);
+    });
+    return total;
+  };
+
+  /** Walk `end` back over trailing whitespace, so measured widths match. */
+  const trimmed = (from: number, end: number): number => {
+    let e = end;
+    while (e > from && /\s/.test(text[e - 1])) e--;
+    return e;
+  };
+
+  const lines: LaidOutLine[] = [];
+  let top = 0;
+
+  const push = (from: number, to: number): void => {
+    const runs: LaidOutRun[] = [];
+    let x = 0;
+    eachRun(from, to, (a, b, style) => {
+      const m = getMetrics(style);
+      const width = m.measureText(text.slice(a, b), style.fontSize);
+      runs.push({
+        text: text.slice(a, b),
+        x,
+        width,
+        style,
+        ascent: ascentOf(m, style.fontSize),
+        descent: descentOf(m, style.fontSize),
+      });
+      x += width;
+    });
+
+    // An empty line still needs a height, taken from the style at its offset
+    // so a blank line inside large text keeps the larger spacing.
+    const blankStyle = styleOf(from);
+    const blankMetrics = getMetrics(blankStyle);
+    const height =
+      (runs.length > 0 ? Math.max(...runs.map((r) => r.style.fontSize)) : blankStyle.fontSize) *
+      lineHeightMultiplier;
+
+    const asc =
+      runs.length > 0
+        ? Math.max(...runs.map((r) => r.ascent))
+        : ascentOf(blankMetrics, blankStyle.fontSize);
+    const desc =
+      runs.length > 0
+        ? Math.min(...runs.map((r) => r.descent))
+        : descentOf(blankMetrics, blankStyle.fontSize);
+
+    lines.push({
+      text: text.slice(from, to),
+      width: x,
+      runs,
+      top,
+      height,
+      baselineOffset: (height - (asc - desc)) / 2 + asc,
+    });
+    top += height;
+  };
+
+  /** Hard-break a stretch that cannot fit even on a line of its own. */
+  const breakOversized = (from: number, to: number): number => {
+    let start = from;
+    while (measure(start, trimmed(start, to)) > maxWidth && to - start > 1) {
+      let cut = to - start - 1;
+      while (cut > 1 && measure(start, start + cut) > maxWidth) cut--;
+      push(start, start + cut);
+      start += cut;
+    }
+    return start;
+  };
+
+  let paragraphStart = 0;
+  for (const paragraph of text.split('\n')) {
+    const paragraphEnd = paragraphStart + paragraph.length;
+
+    if (paragraph === '') {
+      push(paragraphStart, paragraphStart);
+      paragraphStart = paragraphEnd + 1;
+      continue;
+    }
+
+    // Keep trailing spaces attached to their word so measured widths stay
+    // faithful to what will be drawn.
+    const words: { start: number; end: number }[] = [];
+    const re = /\S+\s*/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(paragraph)) !== null) {
+      words.push({
+        start: paragraphStart + match.index,
+        end: paragraphStart + match.index + match[0].length,
+      });
+    }
+
+    let lineStart = paragraphStart;
+    let lineEnd = paragraphStart;
+
+    for (const word of words) {
+      if (lineEnd === lineStart || measure(lineStart, trimmed(lineStart, word.end)) <= maxWidth) {
+        lineEnd = word.end;
+      } else {
+        push(lineStart, trimmed(lineStart, lineEnd));
+        lineStart = word.start;
+        lineEnd = word.end;
+      }
+      lineStart = breakOversized(lineStart, lineEnd);
+    }
+
+    push(lineStart, trimmed(lineStart, lineEnd));
+    paragraphStart = paragraphEnd + 1;
+  }
+
+  if (lines.length === 0) push(0, 0);
+
+  const defaultMetrics = getMetrics(defaults);
+  const lineBoxHeight = defaults.fontSize * lineHeightMultiplier;
+  const dAsc = ascentOf(defaultMetrics, defaults.fontSize);
+  const dDesc = descentOf(defaultMetrics, defaults.fontSize);
+
+  return {
+    lines,
+    lineBoxHeight,
+    baselineOffset: (lineBoxHeight - (dAsc - dDesc)) / 2 + dAsc,
+    height: lines.reduce((sum, l) => sum + l.height, 0),
+  };
+}
+
+/**
+ * Lay out uniformly styled text.
+ *
+ * A thin wrapper over the styled path, so the codebase still has exactly one
+ * line breaker rather than a simple one and a rich one that could drift apart.
  */
 export function layoutText(
   m: FontMetrics,
@@ -80,59 +282,14 @@ export function layoutText(
   maxWidth: number,
   lineHeightMultiplier: number,
 ): TextLayout {
-  const lineBoxHeight = fontSize * lineHeightMultiplier;
-  const asc = (m.ascent / m.unitsPerEm) * fontSize;
-  const desc = (m.descent / m.unitsPerEm) * fontSize; // negative
-  const halfLeading = (lineBoxHeight - (asc - desc)) / 2;
-
-  const lines: LaidOutLine[] = [];
-  const push = (t: string) => lines.push({ text: t, width: m.measureText(t, fontSize) });
-
-  /** Hard-break a run that cannot fit even on a line of its own. */
-  const breakOversized = (run: string): string => {
-    let rest = run;
-    while (m.measureText(rest.trimEnd(), fontSize) > maxWidth && rest.length > 1) {
-      let cut = rest.length - 1;
-      while (cut > 1 && m.measureText(rest.slice(0, cut), fontSize) > maxWidth) cut--;
-      push(rest.slice(0, cut));
-      rest = rest.slice(cut);
-    }
-    return rest;
-  };
-
-  for (const paragraph of text.split('\n')) {
-    if (paragraph === '') {
-      push('');
-      continue;
-    }
-
-    // Keep trailing spaces attached to their word so measured widths stay
-    // faithful to what will be drawn.
-    const words = paragraph.match(/\S+\s*/g) ?? [];
-    let current = '';
-
-    for (const word of words) {
-      const candidate = current + word;
-      if (current === '' || m.measureText(candidate.trimEnd(), fontSize) <= maxWidth) {
-        current = candidate;
-      } else {
-        push(current.trimEnd());
-        current = word;
-      }
-      current = breakOversized(current);
-    }
-
-    push(current.trimEnd());
-  }
-
-  if (lines.length === 0) push('');
-
-  return {
-    lines,
-    lineBoxHeight,
-    baselineOffset: halfLeading + asc,
-    height: lines.length * lineBoxHeight,
-  };
+  return layoutStyledText(
+    () => m,
+    text,
+    undefined,
+    { bold: false, italic: false, color: '#000000', fontSize },
+    maxWidth,
+    lineHeightMultiplier,
+  );
 }
 
 /** Horizontal offset of line `i` within a box of `boxWidth`, given alignment. */
@@ -149,6 +306,24 @@ export type FontVariant = 'regular' | 'italic' | 'bold' | 'boldItalic';
 
 export const variantOf = (bold: boolean, italic: boolean): FontVariant =>
   bold && italic ? 'boldItalic' : bold ? 'bold' : italic ? 'italic' : 'regular';
+
+/**
+ * Every variant a styled text object can need.
+ *
+ * Measurement cannot begin until all of them are loaded, since a bold span is
+ * measured with the bold font, so the renderer primes the whole set up front
+ * rather than discovering a missing variant mid-layout.
+ */
+export function variantsOf(
+  defaults: { bold: boolean; italic: boolean },
+  spans: readonly StyleSpan[] | undefined,
+): FontVariant[] {
+  const out = new Set<FontVariant>([variantOf(defaults.bold, defaults.italic)]);
+  for (const s of spans ?? []) {
+    out.add(variantOf(s.bold ?? defaults.bold, s.italic ?? defaults.italic));
+  }
+  return [...out];
+}
 
 const FILES: Record<FontVariant, string> = {
   regular: 'fonts/Inter-Regular.ttf',
