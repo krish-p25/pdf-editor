@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { displaySize } from '../geometry/coords';
-import { fitWithin, FULL_CROP } from '../geometry/images';
+import { fitWithin, placeAtPoint, FULL_CROP } from '../geometry/images';
 import { createHistory } from './history';
 import { normaliseTitle } from './title';
 import type { Doc, EditorObject, ObjectId, Page, PageId, Rotation, ToolId } from './types';
@@ -61,6 +61,11 @@ interface State {
   addObject(o: EditorObject): void;
   /** Place an image centred on the active page, scaled to fit. */
   addImage(img: { src: string; naturalWidth: number; naturalHeight: number }): void;
+  /** Place an image centred on a point in page space, kept on the page. */
+  addImageAt(
+    img: { src: string; naturalWidth: number; naturalHeight: number },
+    centre: { x: number; y: number },
+  ): void;
   updateObject(id: ObjectId, patch: Partial<EditorObject>): void;
   /** Live drag updates; not recorded until commitInteraction(). */
   updateObjectTransient(id: ObjectId, patch: Partial<EditorObject>): void;
@@ -221,18 +226,25 @@ export const useStore = create<State>((set, get) => {
       const { doc, activePageId } = get();
       const page = doc?.pages.find((p) => p.id === activePageId);
       if (!page) return;
+      get().addImageAt(img, { x: page.width / 2, y: page.height / 2 });
+    },
+
+    addImageAt(img, centre) {
+      const { doc, activePageId } = get();
+      const page = doc?.pages.find((p) => p.id === activePageId);
+      if (!page) return;
 
       // Half the page is a size that reads as deliberate: big enough to see,
       // small enough to position without immediately resizing it.
       const size = fitWithin(img.naturalWidth, img.naturalHeight, page.width / 2, page.height / 2);
-      const id = nextId('obj');
+      const at = placeAtPoint(size.width, size.height, centre, page);
 
       get().addObject({
-        id,
+        id: nextId('obj'),
         pageId: page.id,
         kind: 'image',
-        x: (page.width - size.width) / 2,
-        y: (page.height - size.height) / 2,
+        x: at.x,
+        y: at.y,
         width: size.width,
         height: size.height,
         src: img.src,

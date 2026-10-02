@@ -128,6 +128,22 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', warn);
   }, []);
 
+  // A file dropped anywhere the app does not handle would otherwise make the
+  // browser navigate to it, throwing the user out of the editor over a
+  // near-miss. Swallowing it at the window makes a stray drop a no-op.
+  useEffect(() => {
+    const swallow = (e: globalThis.DragEvent) => {
+      if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+      e.preventDefault();
+    };
+    window.addEventListener('dragover', swallow);
+    window.addEventListener('drop', swallow);
+    return () => {
+      window.removeEventListener('dragover', swallow);
+      window.removeEventListener('drop', swallow);
+    };
+  }, []);
+
   const onFile = useCallback(
     async (file: File) => {
       setBusy(true);
