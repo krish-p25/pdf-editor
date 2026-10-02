@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../model/store';
 import { normaliseTitle } from '../model/title';
 import type { ToolId } from '../model/types';
+import { EXTRA_IMAGE_EXTENSIONS } from '../pdf/imageFile';
 
 const TOOLS: { id: ToolId; label: string; key: string; glyph: string }[] = [
   { id: 'select', label: 'Select', key: 'V', glyph: '⌖' },
@@ -103,7 +104,7 @@ export function Toolbar({ onExport, exporting, onCloseDoc, onInsertImage }: Prop
         ▣
         <input
           type="file"
-          accept="image/*"
+          accept={`image/*,${EXTRA_IMAGE_EXTENSIONS}`}
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];

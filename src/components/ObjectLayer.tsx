@@ -16,7 +16,7 @@ import { ShapeObjectView } from './ShapeObjectView';
 import { TextObjectView } from './TextObjectView';
 import { ImageObjectView, CropPreview } from './ImageObjectView';
 import { objectBoxStyle } from './PageObjects';
-import { loadImageFile, ImageLoadError } from '../pdf/imageFile';
+import { loadImageFile, looksLikeImage, ImageLoadError } from '../pdf/imageFile';
 import {
   isBoxShape,
   isImage,
@@ -427,7 +427,7 @@ export function ObjectLayer({ page, zoom }: Props) {
     setDropActive(false);
 
     const files = Array.from(e.dataTransfer.files);
-    const images = files.filter((f) => f.type.startsWith('image/'));
+    const images = files.filter(looksLikeImage);
 
     if (images.length === 0) {
       setError(
