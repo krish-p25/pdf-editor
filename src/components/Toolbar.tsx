@@ -1,4 +1,6 @@
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../model/store';
+import { normaliseTitle } from '../model/title';
 import type { ToolId } from '../model/types';
 
 const TOOLS: { id: ToolId; label: string; key: string; glyph: string }[] = [
@@ -25,7 +27,23 @@ export function Toolbar({ onExport, exporting, onCloseDoc, onInsertImage }: Prop
   const setZoom = useStore((s) => s.setZoom);
   const undo = useStore((s) => s.undo);
   const redo = useStore((s) => s.redo);
-  const fileName = useStore((s) => s.doc?.fileName);
+  const title = useStore((s) => s.doc?.title ?? '');
+  const setTitle = useStore((s) => s.setTitle);
+
+  // Local while typing so an intermediate empty field is not immediately
+  // rewritten to "Untitled" under the cursor; committed on blur or Enter.
+  const [draft, setDraft] = useState(title);
+  const editing = useRef(false);
+
+  useEffect(() => {
+    if (!editing.current) setDraft(title);
+  }, [title]);
+
+  const commit = () => {
+    editing.current = false;
+    setTitle(draft);
+    setDraft(normaliseTitle(draft));
+  };
 
   return (
     <div className="flex shrink-0 items-center gap-1 border-b border-edge bg-surface px-3 py-2">
@@ -39,9 +57,27 @@ export function Toolbar({ onExport, exporting, onCloseDoc, onInsertImage }: Prop
         ← Documents
       </button>
 
-      <div className="mr-3 max-w-40 truncate text-sm font-medium text-slate-700" title={fileName}>
-        {fileName}
-      </div>
+      <input
+        value={draft}
+        onChange={(e) => {
+          editing.current = true;
+          setDraft(e.target.value);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Escape') {
+            editing.current = false;
+            setDraft(title);
+            e.currentTarget.blur();
+          }
+        }}
+        title="Rename this document"
+        aria-label="Document title"
+        placeholder="Untitled"
+        className="mr-3 w-44 truncate rounded-md border border-transparent px-2 py-1 text-sm font-medium text-slate-700 transition-colors hover:border-edge focus:border-accent focus:bg-white focus:outline-none"
+      />
 
       {TOOLS.map((t) => (
         <button

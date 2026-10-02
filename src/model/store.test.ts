@@ -36,6 +36,7 @@ const shapeObject: ShapeObject = {
 
 const doc = (): Doc => ({
   id: 'doc_test',
+  title: 'test',
   fileName: 'test.pdf',
   sourceBytes: new Uint8Array([1, 2, 3]),
   pages: [
@@ -351,5 +352,44 @@ describe('importing another PDF', () => {
   it('does nothing when the import contributed no pages', () => {
     useStore.getState().appendImportedPages(merged, []);
     expect(useStore.getState().doc!.pages).toHaveLength(2);
+  });
+});
+
+describe('renaming the document', () => {
+  it('updates the title', () => {
+    useStore.getState().setTitle('Signed contract');
+    expect(useStore.getState().doc!.title).toBe('Signed contract');
+  });
+
+  it('trims surrounding whitespace', () => {
+    useStore.getState().setTitle('  Contract  ');
+    expect(useStore.getState().doc!.title).toBe('Contract');
+  });
+
+  it('falls back rather than leaving the document nameless', () => {
+    useStore.getState().setTitle('   ');
+    expect(useStore.getState().doc!.title).toBe('Untitled');
+  });
+
+  it('leaves the original filename alone as provenance', () => {
+    useStore.getState().setTitle('Renamed');
+    expect(useStore.getState().doc!.fileName).toBe('test.pdf');
+  });
+
+  it('stays out of the undo history', () => {
+    // Renaming is a document property, not a content edit: Ctrl+Z after a
+    // rename should undo the last real edit, not silently revert the name.
+    useStore.getState().updateObject('t1', { text: 'edited' });
+    useStore.getState().setTitle('Renamed');
+    useStore.getState().undo();
+
+    expect(useStore.getState().doc!.title).toBe('Renamed');
+    expect(useStore.getState().doc!.objects.t1).toMatchObject({ text: 'Hello' });
+  });
+
+  it('does nothing when no document is open', () => {
+    useStore.getState().closeDoc();
+    useStore.getState().setTitle('Nope');
+    expect(useStore.getState().doc).toBeNull();
   });
 });

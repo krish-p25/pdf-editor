@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { displaySize } from '../geometry/coords';
 import { fitWithin, FULL_CROP } from '../geometry/images';
 import { createHistory } from './history';
+import { normaliseTitle } from './title';
 import type { Doc, EditorObject, ObjectId, Page, PageId, Rotation, ToolId } from './types';
 
 let idCounter = 0;
@@ -44,6 +45,8 @@ interface State {
   setZoom(z: number): void;
   setSnapEnabled(on: boolean): void;
   setError(message: string | null): void;
+  /** Rename the document. */
+  setTitle(title: string): void;
 
   select(ids: ObjectId[]): void;
   clearSelection(): void;
@@ -173,6 +176,15 @@ export const useStore = create<State>((set, get) => {
     setZoom: (zoom) => set({ zoom: Math.min(4, Math.max(0.25, Math.round(zoom * 100) / 100)) }),
     setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
     setError: (error) => set({ error }),
+
+    setTitle(title) {
+      const { doc } = get();
+      if (!doc) return;
+      // Renaming is a document property, not an edit to its contents, so it
+      // deliberately stays out of the undo history — Ctrl+Z after a rename
+      // should undo the user's last edit, not silently revert the name.
+      set({ doc: { ...doc, title: normaliseTitle(title) } });
+    },
 
     select: (selection) => set({ selection }),
     clearSelection: () =>

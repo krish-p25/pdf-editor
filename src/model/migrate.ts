@@ -1,3 +1,4 @@
+import { titleFromFileName } from './title';
 import type { Doc, EditorObject, LineShapeObject, ObjectId } from './types';
 
 /**
@@ -11,12 +12,17 @@ import type { Doc, EditorObject, LineShapeObject, ObjectId } from './types';
  *
  * Migration is idempotent: an object that already has endpoints is untouched.
  */
-export function migrateDoc(doc: Doc): Doc {
+/** A document as it may come off disk: `title` postdates some records. */
+export type StoredDoc = Omit<Doc, 'title'> & { title?: string };
+
+export function migrateDoc(doc: StoredDoc): Doc {
   const objects: Record<ObjectId, EditorObject> = {};
   for (const [id, o] of Object.entries(doc.objects)) {
     objects[id] = migrateObject(o);
   }
-  return { ...doc, objects };
+  // Documents saved before titles existed take their filename as a title.
+  const title = doc.title ?? titleFromFileName(doc.fileName);
+  return { ...doc, title, objects };
 }
 
 function migrateObject(o: EditorObject): EditorObject {

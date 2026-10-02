@@ -8,6 +8,7 @@ export interface BackupFile {
   format: 'pdf-editor-backup';
   version: number;
   savedAt: string;
+  title: string;
   fileName: string;
   /** The original PDF bytes, base64 encoded. */
   sourceBytes: string;
@@ -48,6 +49,7 @@ export function serializeBackup(doc: Doc, now: Date = new Date()): string {
     format: 'pdf-editor-backup',
     version: BACKUP_VERSION,
     savedAt: now.toISOString(),
+    title: doc.title,
     fileName: doc.fileName,
     sourceBytes: bytesToBase64(doc.sourceBytes),
     pages: doc.pages,
@@ -105,6 +107,7 @@ export function parseBackup(json: string): Doc {
   return migrateDoc({
     // A restored backup is a new document in the list, not an overwrite.
     id: newDocumentId(),
+    title: typeof raw.title === 'string' ? raw.title : undefined,
     fileName: typeof raw.fileName === 'string' ? raw.fileName : 'restored.pdf',
     sourceBytes,
     pages: raw.pages as Page[],

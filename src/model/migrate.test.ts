@@ -28,6 +28,7 @@ const legacyArrow = {
 
 const doc = (objects: Record<string, EditorObject>): Doc => ({
   id: 'doc_test',
+  title: 'x',
   fileName: 'x.pdf',
   sourceBytes: new Uint8Array([1]),
   pages: [{ id: 'p1', sourceIndex: 0, rotation: 0, width: 600, height: 800, objectIds: Object.keys(objects) }],

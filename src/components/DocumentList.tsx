@@ -46,7 +46,7 @@ export function DocumentList({ documents, onOpen, onDelete }: Props) {
               onClick={() => onOpen(d.id)}
               className="min-w-0 flex-1 text-left"
             >
-              <div className="truncate text-sm font-medium text-slate-800">{d.fileName}</div>
+              <div className="truncate text-sm font-medium text-slate-800">{d.title}</div>
               <div className="text-xs text-slate-400">
                 {d.pageCount} page{d.pageCount === 1 ? '' : 's'} · edited {describeSaved(d.savedAt)}
               </div>
@@ -76,8 +76,8 @@ export function DocumentList({ documents, onOpen, onDelete }: Props) {
               <button
                 type="button"
                 onClick={() => setConfirmingId(d.id)}
-                title={`Delete ${d.fileName}`}
-                aria-label={`Delete ${d.fileName}`}
+                title={`Delete ${d.title}`}
+                aria-label={`Delete ${d.title}`}
                 className="shrink-0 rounded-md px-2 py-1 text-sm text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
               >
                 ✕

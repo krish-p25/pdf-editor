@@ -32,6 +32,7 @@ const page = (id: string, sourceIndex: number, objectIds: string[] = []): Page =
 
 const doc = (pages: Page[], objects: Doc['objects'] = {}): Doc => ({
   id: 'doc_test',
+  title: 'test',
   fileName: 'test.pdf',
   sourceBytes: source,
   pages,
@@ -259,6 +260,24 @@ describe('object drawing', () => {
     // t1 belongs to page 'a'; exporting only page 'b' must not draw it.
     const out = await exportPdf(doc([page('b', 1)], { t1: text() }), fonts);
     expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
+  });
+});
+
+describe('document title', () => {
+  it('writes the title into the PDF metadata', async () => {
+    const out = await exportPdf({ ...doc([page('a', 0)]), title: 'Quarterly report' }, fonts);
+    expect((await PDFDocument.load(out)).getTitle()).toBe('Quarterly report');
+  });
+
+  it('carries a renamed title through', async () => {
+    const out = await exportPdf({ ...doc([page('a', 0)]), title: 'Signed contract' }, fonts);
+    expect((await PDFDocument.load(out)).getTitle()).toBe('Signed contract');
+  });
+
+  it('keeps characters that are legal in a title but not a filename', async () => {
+    // The filename is sanitised separately; the metadata keeps what was typed.
+    const out = await exportPdf({ ...doc([page('a', 0)]), title: 'Q1/Q2: results' }, fonts);
+    expect((await PDFDocument.load(out)).getTitle()).toBe('Q1/Q2: results');
   });
 });
 

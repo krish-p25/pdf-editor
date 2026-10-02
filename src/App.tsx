@@ -15,6 +15,7 @@ import {
   saveDocument,
   type DocumentSummary,
 } from './model/persistence';
+import { exportFileName } from './model/title';
 import { useKeyboard } from './hooks/useKeyboard';
 import { DropZone } from './components/DropZone';
 import { Toolbar } from './components/Toolbar';
@@ -262,7 +263,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${current.fileName.replace(/\.pdf$/i, '')}-edited.pdf`;
+      a.download = exportFileName(current.title);
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
