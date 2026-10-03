@@ -59,6 +59,11 @@ This one does the work locally. No upload means no privacy question to worry abo
 - The object you snapped *to* is highlighted, so you can see what you lined up with
 - Hold <kbd>Alt</kbd> to place something freely
 
+### Exporting
+- **Export a PDF** with every change baked in, named after the document title
+- **Export pages as images** — PNG or JPEG at 72, 150 or 300 DPI; one page downloads as an image, several as a zip
+- Images are made from the exported PDF, so they show exactly what the PDF shows
+
 ### Not supported
 This is an **overlay editor** — it adds content on top of your pages. It does **not** retype or reflow text that is already in the PDF, and it does not fill forms or add digital signatures. Those need a different class of tool, and any project claiming to do them reliably in a browser is overselling.
 

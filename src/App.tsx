@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useStore } from './model/store';
-import { loadDocument, openBytes, PdfLoadError } from './pdf/loadDocument';
+import { loadDocument, openBytes, openProxy, PdfLoadError } from './pdf/loadDocument';
 import { exportPdf, type FontSet } from './pdf/exportPdf';
+import { bundleImages, rasterisePdf, type ImageExportFormat } from './pdf/exportImages';
 import { primeFont } from './pdf/fontMetrics';
 import { clearRenderCache } from './pdf/renderPage';
 import { loadImageFile, ImageLoadError } from './pdf/imageFile';
@@ -22,7 +23,7 @@ import {
   saveDocument,
   type DocumentSummary,
 } from './model/persistence';
-import { exportFileName } from './model/title';
+import { exportFileName, exportStem } from './model/title';
 import { useKeyboard } from './hooks/useKeyboard';
 import { DropZone } from './components/DropZone';
 import { Toolbar } from './components/Toolbar';
@@ -55,6 +56,27 @@ function writeLastOpened(id: string | null): void {
   } catch {
     /* private mode or blocked storage: reopening is a convenience, not a need */
   }
+}
+
+/** Load all four Inter variants, which export needs whatever the document uses. */
+async function loadFontSet(): Promise<FontSet> {
+  const [regular, bold, italic, boldItalic] = await Promise.all([
+    primeFont('regular'),
+    primeFont('bold'),
+    primeFont('italic'),
+    primeFont('boldItalic'),
+  ]);
+  return { regular, bold, italic, boldItalic };
+}
+
+/** Hand bytes to the browser as a download. */
+function saveFile(bytes: Uint8Array, fileName: string, mime: string): void {
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /** Read chosen files into the shape the merge step takes. */
@@ -325,28 +347,41 @@ export default function App() {
     setExporting(true);
     setError(null);
     try {
-      const [regular, bold, italic, boldItalic] = await Promise.all([
-        primeFont('regular'),
-        primeFont('bold'),
-        primeFont('italic'),
-        primeFont('boldItalic'),
-      ]);
-      const fonts: FontSet = { regular, bold, italic, boldItalic };
-
-      const bytes = await exportPdf(current, fonts);
-      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = exportFileName(current.title);
-      a.click();
-      URL.revokeObjectURL(url);
+      const bytes = await exportPdf(current, await loadFontSet());
+      saveFile(bytes, exportFileName(current.title), 'application/pdf');
     } catch (e) {
       setError(e instanceof Error ? `Export failed: ${e.message}` : 'Export failed.');
     } finally {
       setExporting(false);
     }
   }, [setError]);
+
+  const onExportImages = useCallback(
+    async (format: ImageExportFormat, dpi: number) => {
+      const current = useStore.getState().doc;
+      if (!current) return;
+      setExporting(true);
+      setError(null);
+      try {
+        // Rasterise the EXPORTED file rather than the source pages, so every
+        // edit is in the images and they match the PDF export exactly.
+        const pdf = await exportPdf(current, await loadFontSet());
+        const exported = await openProxy(pdf);
+        try {
+          const images = await rasterisePdf(exported, format, dpi);
+          const out = bundleImages(exportStem(current.title), images, format);
+          saveFile(out.bytes, out.fileName, out.mime);
+        } finally {
+          void exported.destroy();
+        }
+      } catch (e) {
+        setError(e instanceof Error ? `Image export failed: ${e.message}` : 'Image export failed.');
+      } finally {
+        setExporting(false);
+      }
+    },
+    [setError],
+  );
 
   const onCloseDoc = useCallback(() => {
     const current = useStore.getState().doc;
@@ -392,6 +427,7 @@ export default function App() {
     <div className="flex h-full flex-col">
       <Toolbar
         onExport={onExport}
+        onExportImages={onExportImages}
         exporting={exporting}
         onCloseDoc={onCloseDoc}
         onInsertImage={onInsertImage}
