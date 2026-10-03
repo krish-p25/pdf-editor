@@ -3,6 +3,7 @@ import { useStore } from '../model/store';
 import { defaultStyleOf, rangeStyle, type StyleKey } from '../model/textSpans';
 import { lineLength } from '../geometry/lines';
 import { FULL_CROP } from '../geometry/images';
+import type { AlignEdge } from '../geometry/align';
 import {
   isBoxShape,
   isImage,
@@ -27,8 +28,15 @@ export function PropertiesPanel() {
 
   if (!o) {
     return (
-      <aside className="w-64 shrink-0 border-l border-edge bg-panel p-4 text-sm text-slate-400">
-        {selection.length > 1 ? `${selection.length} objects selected` : 'Nothing selected'}
+      <aside className="w-64 shrink-0 space-y-5 overflow-y-auto border-l border-edge bg-panel p-4 text-sm text-slate-400">
+        {selection.length > 1 ? (
+          <>
+            <div>{selection.length} objects selected</div>
+            <AlignSection ids={selection} />
+          </>
+        ) : (
+          'Nothing selected'
+        )}
       </aside>
     );
   }
@@ -158,6 +166,8 @@ export function PropertiesPanel() {
           )}
         </Section>
       )}
+
+      <AlignSection ids={[o.id]} />
 
       <Section title="Position">
         <Row label="X">
@@ -456,14 +466,84 @@ function Toggle({
   );
 }
 
-function SmallButton({ children, onClick }: { children: ReactNode; onClick(): void }) {
+function SmallButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: ReactNode;
+  onClick(): void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex-1 rounded border border-edge bg-white py-1 text-xs hover:bg-slate-50"
+      disabled={disabled}
+      className="flex-1 rounded border border-edge bg-white py-1 text-xs hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>
+  );
+}
+
+const ALIGN_ROWS: { edge: AlignEdge; label: string }[][] = [
+  [
+    { edge: 'left', label: 'Left' },
+    { edge: 'hcenter', label: 'Centre' },
+    { edge: 'right', label: 'Right' },
+  ],
+  [
+    { edge: 'top', label: 'Top' },
+    { edge: 'vcenter', label: 'Middle' },
+    { edge: 'bottom', label: 'Bottom' },
+  ],
+];
+
+/**
+ * Alignment and spacing for the current selection.
+ *
+ * One object aligns to the page; several align to each other. Even spacing
+ * needs three or more, since two objects only have one gap between them.
+ */
+function AlignSection({ ids }: { ids: string[] }) {
+  const alignObjects = useStore((s) => s.alignObjects);
+  const distributeObjects = useStore((s) => s.distributeObjects);
+  const single = ids.length === 1;
+
+  return (
+    <Section title={single ? 'Align to page' : 'Align'}>
+      {ALIGN_ROWS.map((row, i) => (
+        <div key={i} className="flex gap-2">
+          {row.map(({ edge, label }) => (
+            <SmallButton key={edge} onClick={() => alignObjects(ids, edge)}>
+              {label}
+            </SmallButton>
+          ))}
+        </div>
+      ))}
+
+      {!single && (
+        <>
+          <div className="flex gap-2 pt-1">
+            <SmallButton
+              disabled={ids.length < 3}
+              onClick={() => distributeObjects(ids, 'horizontal')}
+            >
+              Space across
+            </SmallButton>
+            <SmallButton
+              disabled={ids.length < 3}
+              onClick={() => distributeObjects(ids, 'vertical')}
+            >
+              Space down
+            </SmallButton>
+          </div>
+          {ids.length < 3 && (
+            <div className="text-xs text-slate-400">Select three or more to space them evenly.</div>
+          )}
+        </>
+      )}
+    </Section>
   );
 }
