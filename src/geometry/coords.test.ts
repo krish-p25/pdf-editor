@@ -6,6 +6,8 @@ import {
   displaySize,
   displayToPage,
   pageToDisplay,
+  rectFromDisplay,
+  rectToDisplay,
   rectToPdf,
 } from './coords';
 
@@ -89,5 +91,28 @@ describe('rectToPdf', () => {
   it('round-trips: flipping twice returns the original', () => {
     const r = { x: 5, y: 15, width: 25, height: 35 };
     expect(rectToPdf(rectToPdf(r, 800), 800)).toEqual(r);
+  });
+});
+
+describe('rect display conversion', () => {
+  const r = { x: 10, y: 20, width: 100, height: 50 };
+  const page = (rotation: 0 | 90 | 180 | 270) => ({ width: 600, height: 800, rotation });
+
+  it('is the identity on an unrotated page', () => {
+    expect(rectToDisplay(r, page(0))).toEqual(r);
+  });
+
+  it('swaps width and height on a quarter turn', () => {
+    expect(rectToDisplay(r, page(90))).toEqual({ x: 730, y: 10, width: 50, height: 100 });
+  });
+
+  it('mirrors on a half turn', () => {
+    expect(rectToDisplay(r, page(180))).toEqual({ x: 490, y: 730, width: 100, height: 50 });
+  });
+
+  it('round-trips through every rotation', () => {
+    for (const rot of [0, 90, 180, 270] as const) {
+      expect(rectFromDisplay(rectToDisplay(r, page(rot)), page(rot))).toEqual(r);
+    }
   });
 });
