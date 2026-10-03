@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useStore } from './store';
+import { canUndo, useStore } from './store';
 import type { Doc, ShapeObject, TextObject } from './types';
 
 const textObject: TextObject = {
@@ -629,5 +629,95 @@ describe('reopening a text box that is already open', () => {
     const t = useStore.getState().doc!.objects.t1 as TextObject;
     expect(t.spans).toEqual([{ start: 0, end: 2, bold: true }]);
     expect(t.bold).toBe(false);
+  });
+});
+
+describe('aligning objects', () => {
+  const obj = (id: string) => useStore.getState().doc!.objects[id];
+
+  it('aligns several objects to their shared left edge', () => {
+    useStore.getState().alignObjects(['t1', 's1'], 'left');
+    expect(obj('t1').x).toBe(10);
+    expect(obj('s1').x).toBe(10);
+  });
+
+  it('aligns several objects to their shared right edge', () => {
+    // t1 ends at 110, s1 at 90; both should end at 110.
+    useStore.getState().alignObjects(['t1', 's1'], 'right');
+    expect(obj('t1').x + obj('t1').width).toBe(110);
+    expect(obj('s1').x + obj('s1').width).toBe(110);
+  });
+
+  it('centres a single object on the page', () => {
+    useStore.getState().alignObjects(['s1'], 'hcenter');
+    expect(obj('s1').x).toBe((600 - 40) / 2);
+  });
+
+  it('aligns to the visual edge of a rotated page', () => {
+    useStore.getState().rotatePage('p1', 90);
+    useStore.getState().alignObjects(['s1'], 'left');
+    // Visual left of a 90-degree page is the stored bottom.
+    expect(obj('s1').x).toBe(50);
+    expect(obj('s1').y).toBe(760);
+  });
+
+  it('is undoable as one step', () => {
+    useStore.getState().alignObjects(['t1', 's1'], 'top');
+    useStore.getState().undo();
+    expect(obj('t1').y).toBe(10);
+    expect(obj('s1').y).toBe(50);
+  });
+
+  it('records nothing when nothing moves', () => {
+    // A single object aligns to the page: the first call moves t1 to x 0, the
+    // second finds it already there. If the second recorded an empty step,
+    // one undo would leave t1 at 0 with history still to undo.
+    useStore.getState().alignObjects(['t1'], 'left');
+    useStore.getState().alignObjects(['t1'], 'left');
+    useStore.getState().undo();
+    expect(obj('t1').x).toBe(10);
+    expect(canUndo()).toBe(false);
+  });
+
+  it('ignores objects on another page', () => {
+    useStore.getState().alignObjects(['t1', 't2'], 'left');
+    expect(obj('t2').x).toBe(10);
+    expect(obj('t2').pageId).toBe('p2');
+  });
+});
+
+describe('distributing objects', () => {
+  const obj = (id: string) => useStore.getState().doc!.objects[id];
+
+  const box = (id: string, x: number, width: number) => ({
+    id,
+    pageId: 'p1',
+    kind: 'rect' as const,
+    x,
+    y: 300,
+    width,
+    height: 10,
+    fill: '#ffffff',
+    fillOpacity: 1,
+    stroke: '#000000',
+    strokeWidth: 1,
+    strokeOpacity: 1,
+  });
+
+  it('spaces three objects evenly', () => {
+    useStore.getState().addObject(box('a', 0, 10));
+    useStore.getState().addObject(box('b', 15, 20));
+    useStore.getState().addObject(box('c', 90, 10));
+
+    useStore.getState().distributeObjects(['a', 'b', 'c'], 'horizontal');
+
+    expect([obj('a').x, obj('b').x, obj('c').x]).toEqual([0, 40, 90]);
+  });
+
+  it('leaves two objects alone', () => {
+    useStore.getState().distributeObjects(['t1', 's1'], 'horizontal');
+    expect(obj('t1').x).toBe(10);
+    expect(obj('s1').x).toBe(50);
+    expect(canUndo()).toBe(false);
   });
 });

@@ -65,6 +65,37 @@ export function pageToDisplay(p: Point, page: PageGeometry): Point {
   }
 }
 
+/** Normalise two opposite corners into a rect. */
+function rectFromCorners(a: Point, b: Point): Rect {
+  return {
+    x: Math.min(a.x, b.x),
+    y: Math.min(a.y, b.y),
+    width: Math.abs(b.x - a.x),
+    height: Math.abs(b.y - a.y),
+  };
+}
+
+/**
+ * A rect in unrotated page space, as it appears on screen.
+ *
+ * Rotation is always a multiple of 90 degrees, so an axis-aligned rect stays
+ * axis-aligned: mapping two opposite corners and normalising is exact.
+ */
+export function rectToDisplay(r: Rect, page: PageGeometry): Rect {
+  return rectFromCorners(
+    pageToDisplay({ x: r.x, y: r.y }, page),
+    pageToDisplay({ x: r.x + r.width, y: r.y + r.height }, page),
+  );
+}
+
+/** The inverse of rectToDisplay. */
+export function rectFromDisplay(r: Rect, page: PageGeometry): Rect {
+  return rectFromCorners(
+    displayToPage({ x: r.x, y: r.y }, page),
+    displayToPage({ x: r.x + r.width, y: r.y + r.height }, page),
+  );
+}
+
 /**
  * Convert a rect from unrotated page space (top-left origin, y-down) to PDF
  * user space (bottom-left origin, y-up). Only the anchor moves; width and

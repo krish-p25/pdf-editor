@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { displaySize } from '../geometry/coords';
 import { fitWithin, placeAtPoint, FULL_CROP } from '../geometry/images';
 import { createHistory } from './history';
+import { alignOnPage, distributeOnPage, type AlignEdge, type DistributeAxis } from '../geometry/align';
 import { applySpanStyle, clearSpanKey, STYLE_KEYS, tidySpans } from './textSpans';
 import { normaliseTitle } from './title';
 import type {
@@ -10,6 +11,7 @@ import type {
   ObjectId,
   Page,
   PageId,
+  Rect,
   Rotation,
   SpanStyle,
   TextObject,
@@ -101,6 +103,13 @@ interface State {
   deleteObjects(ids: ObjectId[]): void;
   bringToFront(id: ObjectId): void;
   sendToBack(id: ObjectId): void;
+  /**
+   * Line objects up on the page as the user sees it: several align to each
+   * other, a single one to the page.
+   */
+  alignObjects(ids: ObjectId[], edge: AlignEdge): void;
+  /** Space three or more objects evenly along an axis. */
+  distributeObjects(ids: ObjectId[], axis: DistributeAxis): void;
 
   reorderPages(from: number, to: number): void;
   /** Append a blank page matching the last page's visible size. */
@@ -156,6 +165,36 @@ export const useStore = create<State>((set, get) => {
       activePageId: s.pages.some((p) => p.id === get().activePageId)
         ? get().activePageId
         : (s.pages[0]?.id ?? null),
+    });
+  };
+
+  /**
+   * Move objects to positions computed for their page, as one undo step.
+   *
+   * Only x and y change: rotation is a multiple of 90 degrees, so an object's
+   * stored size is the same however the page is turned. A move that changes
+   * nothing records nothing, so a repeated click leaves no empty undo step.
+   */
+  const arrange = (ids: ObjectId[], place: (rects: Rect[], page: Page) => Rect[]) => {
+    const { doc } = get();
+    const first = doc && ids.length > 0 ? doc.objects[ids[0]] : undefined;
+    const page = first ? doc?.pages.find((p) => p.id === first.pageId) : undefined;
+    if (!doc || !page) return;
+
+    const targets = ids
+      .map((id) => doc.objects[id])
+      .filter((o): o is EditorObject => !!o && o.pageId === page.id);
+    const placed = place(targets, page);
+
+    const unchanged = placed.every(
+      (r, i) => Math.abs(r.x - targets[i].x) < 1e-6 && Math.abs(r.y - targets[i].y) < 1e-6,
+    );
+    if (unchanged) return;
+
+    mutate((d) => {
+      targets.forEach((o, i) => {
+        d.objects[o.id] = { ...d.objects[o.id], x: placed[i].x, y: placed[i].y } as EditorObject;
+      });
     });
   };
 
@@ -397,6 +436,14 @@ export const useStore = create<State>((set, get) => {
         const page = o && doc.pages.find((p) => p.id === o.pageId);
         if (page) page.objectIds = [id, ...page.objectIds.filter((x) => x !== id)];
       });
+    },
+
+    alignObjects(ids, edge) {
+      arrange(ids, (rects, page) => alignOnPage(rects, edge, page));
+    },
+
+    distributeObjects(ids, axis) {
+      arrange(ids, (rects, page) => distributeOnPage(rects, axis, page));
     },
 
     reorderPages(from, to) {
