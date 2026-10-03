@@ -137,7 +137,12 @@ export async function rasterisePdf(
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
 
-    await page.render({ canvasContext: context, viewport }).promise;
+    // Print intent, not the default display intent: pdf.js paces display
+    // renders with requestAnimationFrame, which browsers pause in a background
+    // tab, so an export left running while the user switched tabs would stall
+    // until they came back. Print intent renders straight through - and
+    // "as output" is the right meaning for an export anyway.
+    await page.render({ canvasContext: context, viewport, intent: 'print' }).promise;
     out.push(await canvasBytes(canvas, format));
 
     page.cleanup();

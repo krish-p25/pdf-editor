@@ -1,6 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { unzipSync } from 'fflate';
-import { bundleImages, exportScale, imageFileNames, MAX_EXPORT_EDGE } from './exportImages';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
+import {
+  bundleImages,
+  exportScale,
+  imageFileNames,
+  MAX_EXPORT_EDGE,
+  rasterisePdf,
+} from './exportImages';
 
 describe('exportScale', () => {
   it('treats 72 DPI as scale 1, since a PDF point is 1/72 inch', () => {
@@ -79,5 +86,52 @@ describe('bundleImages', () => {
 
   it('refuses to bundle nothing', () => {
     expect(() => bundleImages('Report', [], 'png')).toThrow();
+  });
+});
+
+describe('rasterisePdf', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /**
+   * A stand-in for pdf.js: jsdom has no canvas and no pdf.js worker, so the
+   * real renderer cannot run here. This records how each page is rendered.
+   */
+  function fakeProxy(numPages: number) {
+    const renders: { intent?: string; viewport: { width: number; height: number } }[] = [];
+    const page = {
+      getViewport: ({ scale }: { scale: number }) => ({ width: 100 * scale, height: 200 * scale }),
+      render: (params: (typeof renders)[number]) => {
+        renders.push(params);
+        return { promise: Promise.resolve() };
+      },
+      cleanup: () => undefined,
+    };
+    const proxy = { numPages, getPage: async () => page } as unknown as PDFDocumentProxy;
+
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillStyle: '',
+      fillRect: () => undefined,
+    } as never);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((done) =>
+      done({ arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer } as Blob),
+    );
+
+    return { proxy, renders };
+  }
+
+  it('renders with print intent, which a background tab cannot pause', async () => {
+    // Display intent is paced by requestAnimationFrame, which browsers stop in
+    // a hidden tab; an export would stall until the user switched back.
+    const { proxy, renders } = fakeProxy(2);
+    await rasterisePdf(proxy, 'png', 150);
+    expect(renders.map((r) => r.intent)).toEqual(['print', 'print']);
+  });
+
+  it('renders every page at the requested DPI', async () => {
+    const { proxy, renders } = fakeProxy(3);
+    const out = await rasterisePdf(proxy, 'png', 144);
+    expect(out).toHaveLength(3);
+    // 144 DPI is scale 2 against the 100x200 page.
+    expect(renders[0].viewport).toEqual({ width: 200, height: 400 });
   });
 });
