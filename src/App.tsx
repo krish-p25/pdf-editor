@@ -6,7 +6,14 @@ import { exportPdf, type FontSet } from './pdf/exportPdf';
 import { primeFont } from './pdf/fontMetrics';
 import { clearRenderCache } from './pdf/renderPage';
 import { loadImageFile, ImageLoadError } from './pdf/imageFile';
-import { appendPdf, PdfImportError } from './pdf/appendPdf';
+import {
+  appendPdfs,
+  isPdfFile,
+  orderForMerge,
+  PdfImportError,
+  skippedMessage,
+  type IncomingPdf,
+} from './pdf/appendPdf';
 import {
   createAutosave,
   deleteDocument,
@@ -48,6 +55,13 @@ function writeLastOpened(id: string | null): void {
   } catch {
     /* private mode or blocked storage: reopening is a convenience, not a need */
   }
+}
+
+/** Read chosen files into the shape the merge step takes. */
+function readPdfs(files: readonly File[]): Promise<IncomingPdf[]> {
+  return Promise.all(
+    files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })),
+  );
 }
 
 export default function App() {
@@ -166,6 +180,45 @@ export default function App() {
     [loadDoc, setError],
   );
 
+  const onFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      // One file keeps the exact single-file path, and its error messages.
+      if (files.length === 1) return onFile(files[0]);
+
+      const pdfs = files.filter(isPdfFile);
+      if (pdfs.length === 0) {
+        setError('Only PDF files can be opened.');
+        return;
+      }
+      if (pdfs.length === 1) return onFile(pdfs[0]);
+
+      setBusy(true);
+      setError(null);
+      try {
+        clearRenderCache();
+        const merged = await appendPdfs(null, await readPdfs(orderForMerge(pdfs)));
+        // Named after the first file that made it in; renaming is one click.
+        const loaded = await openBytes(merged.bytes, merged.added[0].name);
+        setProxy(loaded.proxy);
+        loadDoc(loaded.doc);
+        writeLastOpened(loaded.doc.id);
+        void primeFont('regular');
+        // After loadDoc, which clears the error, so the notice survives.
+        setError(skippedMessage(merged, pdfs.length));
+      } catch (e) {
+        setError(
+          e instanceof PdfImportError || e instanceof PdfLoadError
+            ? e.message
+            : 'Those files could not be merged.',
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [loadDoc, onFile, setError],
+  );
+
   const onOpenDocument = useCallback(
     async (id: string) => {
       setBusy(true);
@@ -215,24 +268,24 @@ export default function App() {
     [addImage, setError],
   );
 
-  const onImportPdf = useCallback(
-    async (file: File) => {
+  const onImportPdfs = useCallback(
+    async (files: File[]) => {
       const current = useStore.getState().doc;
-      if (!current) return;
+      if (!current || files.length === 0) return;
 
       setBusy(true);
       setError(null);
       try {
-        const incoming = new Uint8Array(await file.arrayBuffer());
-        const merged = await appendPdf(current.sourceBytes, incoming);
+        const merged = await appendPdfs(current.sourceBytes, await readPdfs(orderForMerge(files)));
 
         // Reopen against the merged bytes so page geometry comes from pdf.js,
         // exactly as it does on first load — pdf-lib's getSize() ignores
         // /Rotate, which would give swapped dimensions for rotated pages.
         const opened = await openBytes(merged.bytes, current.fileName);
 
+        const addedPages = merged.added.reduce((n, a) => n + a.pageCount, 0);
         const added = [];
-        for (let i = merged.originalPageCount; i < merged.originalPageCount + merged.addedPageCount; i++) {
+        for (let i = merged.originalPageCount; i < merged.originalPageCount + addedPages; i++) {
           const pdfPage = await opened.proxy.getPage(i + 1);
           const vp = pdfPage.getViewport({ scale: 1 });
           added.push({
@@ -248,10 +301,16 @@ export default function App() {
         // and the bytes behind those indices have just changed.
         clearRenderCache();
         setProxy(opened.proxy);
+        // One call, so importing several files is a single undo step.
         appendImportedPages(merged.bytes, added);
+        setError(skippedMessage(merged, files.length));
       } catch (e) {
         setError(
-          e instanceof PdfImportError ? e.message : 'That PDF could not be imported.',
+          e instanceof PdfImportError
+            ? e.message
+            : files.length === 1
+              ? 'That PDF could not be imported.'
+              : 'Those PDFs could not be imported.',
         );
       } finally {
         setBusy(false);
@@ -320,7 +379,7 @@ export default function App() {
       <div className="flex h-full items-center justify-center text-slate-500">Opening…</div>
     ) : (
       <DropZone
-        onFile={onFile}
+        onFiles={onFiles}
         error={error}
         documents={documents}
         onOpenDocument={onOpenDocument}
@@ -348,7 +407,7 @@ export default function App() {
       )}
 
       <div className="flex min-h-0 flex-1">
-        <ThumbnailRail proxy={proxy} onImportPdf={onImportPdf} />
+        <ThumbnailRail proxy={proxy} onImportPdfs={onImportPdfs} />
         <main className="flex-1 overflow-auto bg-slate-200 p-8">
           <div className="flex justify-center">
             {activePage && (

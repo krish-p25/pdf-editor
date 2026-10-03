@@ -3,7 +3,7 @@ import { DocumentList } from './DocumentList';
 import type { DocumentSummary } from '../model/persistence';
 
 interface Props {
-  onFile(file: File): void;
+  onFiles(files: File[]): void;
   error: string | null;
   documents: DocumentSummary[];
   onOpenDocument(id: string): void;
@@ -11,7 +11,7 @@ interface Props {
 }
 
 export function DropZone({
-  onFile,
+  onFiles,
   error,
   documents,
   onOpenDocument,
@@ -22,10 +22,10 @@ export function DropZone({
 
   const handle = useCallback(
     (files: FileList | null) => {
-      const file = files?.[0];
-      if (file) onFile(file);
+      const list = Array.from(files ?? []);
+      if (list.length > 0) onFiles(list);
     },
-    [onFile],
+    [onFiles],
   );
 
   return (
@@ -46,8 +46,10 @@ export function DropZone({
           over ? 'border-accent bg-blue-50' : 'border-edge bg-surface hover:border-accent'
         }`}
       >
-        <div className="text-lg font-semibold text-slate-800">Drop a PDF here</div>
-        <div className="text-sm text-slate-500">or click to choose a file</div>
+        <div className="text-lg font-semibold text-slate-800">Drop PDFs here</div>
+        <div className="text-sm text-slate-500">
+          or click to choose — pick several to merge them into one
+        </div>
         <div className="mt-2 text-xs text-slate-400">Everything stays on your device</div>
 
         {error && <div className="mt-4 text-sm font-medium text-red-600">{error}</div>}
@@ -56,6 +58,7 @@ export function DropZone({
           ref={input}
           type="file"
           accept="application/pdf,.pdf"
+          multiple
           className="hidden"
           onChange={(e) => handle(e.target.files)}
         />
