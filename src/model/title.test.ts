@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { exportFileName, normaliseTitle, titleFromFileName } from './title';
+import { exportFileName, exportStem, normaliseTitle, titleFromFileName } from './title';
 
 describe('titleFromFileName', () => {
   it('drops the .pdf extension', () => {
@@ -64,5 +64,26 @@ describe('exportFileName', () => {
 
   it('never produces a name that is only an extension', () => {
     expect(exportFileName('')).not.toBe('.pdf');
+  });
+});
+
+describe('exportStem', () => {
+  it('is the export filename without its extension', () => {
+    expect(exportStem('Quarterly report')).toBe('Quarterly report');
+  });
+
+  it('replaces characters no filesystem accepts', () => {
+    expect(exportStem('Q3: report/final')).toBe('Q3- report-final');
+  });
+
+  it('falls back for a title that would leave nothing usable', () => {
+    expect(exportStem('   ')).toBe('Untitled');
+    expect(exportStem('///')).toBe('Untitled');
+  });
+
+  it('is exactly what the PDF filename is built from', () => {
+    for (const t of ['report', 'Q3: final', '  spaced  out  ', '']) {
+      expect(exportFileName(t)).toBe(`${exportStem(t)}.pdf`);
+    }
   });
 });

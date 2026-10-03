@@ -28,14 +28,19 @@ export function normaliseTitle(raw: string): string {
 const UNSAFE = /[\\/:*?"<>|\u0000-\u001f]/g;
 
 /**
- * Turn a title into the name of the downloaded file.
+ * Turn a title into a filename stem, without an extension.
  *
  * Titles are free text but filenames are not: a title containing a slash or a
  * colon would be silently mangled, or rejected outright, by the browser's
- * download handling.
+ * download handling. Every export - the PDF and the page images - is named from
+ * this one stem, so they always agree.
  */
-export function exportFileName(title: string): string {
+export function exportStem(title: string): string {
   const safe = normaliseTitle(title).replace(UNSAFE, '-').replace(/\s+/g, ' ').trim();
-  const stem = safe === '' || /^-+$/.test(safe) ? 'Untitled' : safe;
-  return `${stem}.pdf`;
+  return safe === '' || /^-+$/.test(safe) ? 'Untitled' : safe;
+}
+
+/** The name of the downloaded PDF. */
+export function exportFileName(title: string): string {
+  return `${exportStem(title)}.pdf`;
 }
