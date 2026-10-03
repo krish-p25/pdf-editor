@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { alignRects, boundsOf, distributeRects } from './align';
+import { alignOnPage, alignRects, boundsOf, distributeOnPage, distributeRects } from './align';
 
 const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 
@@ -77,5 +77,51 @@ describe('distributeRects', () => {
     const input = [rect(0, 0, 10, 5), rect(15, 0, 20, 5), rect(90, 0, 10, 5)];
     distributeRects(input, 'horizontal');
     expect(input[1].x).toBe(15);
+  });
+});
+
+describe('alignOnPage', () => {
+  const page = (rotation: 0 | 90 | 180 | 270) => ({ width: 600, height: 800, rotation });
+
+  it('aligns several objects to their combined bounds, not the page', () => {
+    const got = alignOnPage([rect(10, 0, 50, 20), rect(80, 0, 50, 20)], 'left', page(0));
+    expect(got.map((g) => g.x)).toEqual([10, 10]);
+  });
+
+  it('aligns a single object to the page', () => {
+    expect(alignOnPage([rect(10, 0, 100, 20)], 'hcenter', page(0))[0].x).toBe(250);
+  });
+
+  it('aligns to what the user sees on a rotated page', () => {
+    // On a page turned 90 degrees clockwise, the visual left edge is the
+    // stored BOTTOM edge, so "left" moves the object along the stored y axis.
+    expect(alignOnPage([rect(10, 20, 100, 50)], 'left', page(90))[0]).toEqual(
+      rect(10, 750, 100, 50),
+    );
+  });
+
+  it('keeps the stored size on a rotated page', () => {
+    const got = alignOnPage([rect(10, 20, 100, 50)], 'top', page(270))[0];
+    expect(got.width).toBe(100);
+    expect(got.height).toBe(50);
+  });
+});
+
+describe('distributeOnPage', () => {
+  it('matches plain distribution on an unrotated page', () => {
+    const rs = [rect(0, 0, 10, 5), rect(15, 0, 20, 5), rect(90, 0, 10, 5)];
+    expect(distributeOnPage(rs, 'horizontal', { width: 600, height: 800, rotation: 0 })).toEqual(
+      distributeRects(rs, 'horizontal'),
+    );
+  });
+
+  it('distributes along the visual axis of a rotated page', () => {
+    // Visually horizontal on a 90-degree page is the stored y axis, so the
+    // objects are spaced along y and x is left alone. Same extent and sizes
+    // as the unrotated case above, so the same spacing comes out.
+    const rs = [rect(0, 0, 5, 10), rect(0, 15, 5, 20), rect(0, 90, 5, 10)];
+    const got = distributeOnPage(rs, 'horizontal', { width: 600, height: 800, rotation: 90 });
+    expect(got.map((g) => g.x)).toEqual([0, 0, 0]);
+    expect(got.map((g) => g.y)).toEqual([0, 40, 90]);
   });
 });

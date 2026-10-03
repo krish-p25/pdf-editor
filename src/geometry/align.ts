@@ -1,4 +1,5 @@
 import type { Rect } from '../model/types';
+import { displaySize, rectFromDisplay, rectToDisplay, type PageGeometry } from './coords';
 
 export type AlignEdge = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom';
 export type DistributeAxis = 'horizontal' | 'vertical';
@@ -59,4 +60,36 @@ export function distributeRects(rects: readonly Rect[], axis: DistributeAxis): R
     cursor += rects[i][size] + gap;
   }
   return out;
+}
+
+/**
+ * Align objects on a page as the user sees it.
+ *
+ * Objects are stored in unrotated page space, but "left" means the left of the
+ * page on screen. Converting to display space, aligning there and converting
+ * back gets every rotation right without special-casing any of them.
+ *
+ * Several objects align to their combined bounds; a single object aligns to
+ * the page.
+ */
+export function alignOnPage(rects: readonly Rect[], edge: AlignEdge, page: PageGeometry): Rect[] {
+  const shown = rects.map((r) => rectToDisplay(r, page));
+  const display = displaySize(page);
+  const target =
+    rects.length === 1
+      ? { x: 0, y: 0, width: display.width, height: display.height }
+      : boundsOf(shown);
+  return alignRects(shown, edge, target).map((r) => rectFromDisplay(r, page));
+}
+
+/** Distribute objects along an axis of the page as the user sees it. */
+export function distributeOnPage(
+  rects: readonly Rect[],
+  axis: DistributeAxis,
+  page: PageGeometry,
+): Rect[] {
+  return distributeRects(
+    rects.map((r) => rectToDisplay(r, page)),
+    axis,
+  ).map((r) => rectFromDisplay(r, page));
 }
