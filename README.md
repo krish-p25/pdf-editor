@@ -31,6 +31,7 @@ This one does the work locally. No upload means no privacy question to worry abo
 - **Reorder pages** — drag thumbnails in the sidebar
 - **Delete pages** — remove any page you don't want (undoable)
 - **Rotate pages** — ±90° per page, for scans that arrive sideways
+- **Merge PDFs** — drop several PDFs on the start screen to combine them into one document, or import several into an open one; they go in by filename order (`2.pdf` before `10.pdf`) and can be reordered after
 
 ### Adding text to a PDF
 - Draw a text box anywhere on the page and type
