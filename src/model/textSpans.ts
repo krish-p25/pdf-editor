@@ -245,18 +245,28 @@ export function diffEdit(before: string, after: string): TextEdit {
   };
 }
 
-/** Styling that inserted text takes on, given what sits either side of it. */
+/**
+ * Styling that inserted text takes on.
+ *
+ * Two rules, which is what word processors converge on:
+ *
+ * Text that REPLACED a selection takes the styling of what it replaced, read
+ * from the first character removed. Retyping a bold word has to come out
+ * bold; inheriting from the plain spaces around it instead would quietly
+ * strip the styling off a passage every time it was reworded.
+ *
+ * Text merely INSERTED takes the styling of the character to its left, so
+ * typing onto the end of a bold word continues it. At offset zero there is
+ * nothing to the left, so the character to the right decides instead - which
+ * is also what makes typing at the very start of styled text join it rather
+ * than sit outside it.
+ *
+ * Both rules collapse to the obvious answer in the easy case: an insertion
+ * inside a uniform stretch inherits that stretch either way.
+ */
 function fillerFor(chars: readonly SpanStyle[], edit: TextEdit): SpanStyle {
-  const before = edit.at > 0 ? chars[edit.at - 1] : undefined;
-  const after = chars[edit.at + edit.removed];
-
-  // Unambiguous case: the insertion point sits inside a uniform stretch, so
-  // the new text plainly belongs to it. Typing in the middle of a bold word
-  // has to come out bold.
-  if (before && after && sparseKey(before) === sparseKey(after)) return before;
-
-  // TODO(human): decide what inserted text inherits at a style boundary.
-  return {};
+  if (edit.removed > 0) return chars[edit.at] ?? {};
+  return (edit.at > 0 ? chars[edit.at - 1] : chars[edit.at]) ?? {};
 }
 
 /**

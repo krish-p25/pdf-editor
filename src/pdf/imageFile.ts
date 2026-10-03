@@ -70,6 +70,28 @@ function toJpegDataUrl(img: HTMLImageElement): string {
 }
 
 /**
+ * Smallest edge a native decode must report before it is believed.
+ *
+ * A browser that cannot handle HEIC fires onerror, which the caller already
+ * treats as a refusal. What this guards is the opposite case: a decoder that
+ * resolves successfully with nothing useful, such as a zero-sized image or a
+ * placeholder pixel. Believing that would put a blank rectangle on the page,
+ * while rejecting it costs only a download of the converter, which decodes
+ * the file properly - so when in doubt, fall back.
+ *
+ * The bar is deliberately this low rather than a guess at what counts as a
+ * photo. A small HEIC is still a valid HEIC.
+ */
+const MIN_DECODED_EDGE = 2;
+
+/** Whether a decoded image is real enough to use rather than discard. */
+export const isUsableDecode = (width: number, height: number): boolean =>
+  Number.isFinite(width) &&
+  Number.isFinite(height) &&
+  width >= MIN_DECODED_EDGE &&
+  height >= MIN_DECODED_EDGE;
+
+/**
  * Try the browser's own HEIC decoder before reaching for the WASM one.
  *
  * Safari decodes HEIC natively, so on Apple platforms — where almost every
@@ -85,7 +107,7 @@ async function tryNativeHeicDecode(bytes: Uint8Array): Promise<string | null> {
     return null;
   }
 
-  // TODO(human): decide whether to trust this decode before using it.
+  if (!isUsableDecode(img.naturalWidth, img.naturalHeight)) return null;
   return toJpegDataUrl(img);
 }
 
