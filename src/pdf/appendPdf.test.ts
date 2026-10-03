@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { PDFDocument, rgb, StandardFonts } from '@cantoo/pdf-lib';
-import { appendPdf, PdfImportError } from './appendPdf';
+import {
+  appendPdf,
+  appendPdfs,
+  isPdfFile,
+  orderForMerge,
+  PdfImportError,
+  skippedMessage,
+} from './appendPdf';
 import { drawnTextOnPage } from './contentStream';
 
 let threePages: Uint8Array;
@@ -115,5 +122,155 @@ describe('rejecting bad input', () => {
     const before = Array.from(threePages);
     await appendPdf(threePages, new Uint8Array([1, 2, 3])).catch(() => undefined);
     expect(Array.from(threePages)).toEqual(before);
+  });
+});
+
+const named = (name: string, bytes: Uint8Array) => ({ name, bytes });
+const junk = () => new Uint8Array([1, 2, 3, 4, 5]);
+
+describe('appending several PDFs at once', () => {
+  it('adds every file, in the order given', async () => {
+    const r = await appendPdfs(await makePdf(['A']), [
+      named('b.pdf', await makePdf(['B1', 'B2'])),
+      named('c.pdf', await makePdf(['C'])),
+    ]);
+
+    expect(r.originalPageCount).toBe(1);
+    expect(r.added).toEqual([
+      { name: 'b.pdf', pageCount: 2 },
+      { name: 'c.pdf', pageCount: 1 },
+    ]);
+    expect((await PDFDocument.load(r.bytes)).getPageCount()).toBe(4);
+  });
+
+  it('keeps each file at its own page size, in order', async () => {
+    const r = await appendPdfs(await makePdf(['A'], [600, 800]), [
+      named('b.pdf', await makePdf(['B'], [400, 300])),
+      named('c.pdf', await makePdf(['C'], [200, 100])),
+    ]);
+    const loaded = await PDFDocument.load(r.bytes);
+
+    expect(loaded.getPage(0).getSize()).toEqual({ width: 600, height: 800 });
+    expect(loaded.getPage(1).getSize()).toEqual({ width: 400, height: 300 });
+    expect(loaded.getPage(2).getSize()).toEqual({ width: 200, height: 100 });
+  });
+
+  it('builds a document from nothing when there is no base', async () => {
+    // The start-screen case: several files, no document open yet.
+    const r = await appendPdfs(null, [
+      named('a.pdf', await makePdf(['A'])),
+      named('b.pdf', await makePdf(['B'])),
+    ]);
+
+    expect(r.originalPageCount).toBe(0);
+    expect((await PDFDocument.load(r.bytes)).getPageCount()).toBe(2);
+  });
+
+  it('skips a file it cannot read and keeps the rest', async () => {
+    const r = await appendPdfs(threePages, [
+      named('good.pdf', await makePdf(['G'])),
+      named('bad.pdf', junk()),
+    ]);
+
+    expect(r.added.map((a) => a.name)).toEqual(['good.pdf']);
+    expect(r.skipped).toEqual([
+      { name: 'bad.pdf', reason: 'That file could not be read as a PDF.' },
+    ]);
+    expect((await PDFDocument.load(r.bytes)).getPageCount()).toBe(4);
+  });
+
+  it('fails when every file is unreadable', async () => {
+    await expect(
+      appendPdfs(threePages, [named('a.pdf', junk()), named('b.pdf', junk())]),
+    ).rejects.toThrow(/None of those 2 PDFs could be imported/);
+  });
+
+  it('keeps the single-file message when only one file was given', async () => {
+    // One file must fail exactly as importing one file always has.
+    await expect(appendPdfs(threePages, [named('x.pdf', junk())])).rejects.toThrow(
+      /could not be read as a PDF/i,
+    );
+  });
+
+  it('rejects an empty list', async () => {
+    await expect(appendPdfs(threePages, [])).rejects.toBeInstanceOf(PdfImportError);
+  });
+
+  it('fails when the base document itself is unreadable', async () => {
+    await expect(
+      appendPdfs(junk(), [named('a.pdf', await makePdf(['A']))]),
+    ).rejects.toThrow(/current document could not be read/i);
+  });
+});
+
+describe('orderForMerge', () => {
+  const names = (files: { name: string }[]) => orderForMerge(files).map((f) => f.name);
+
+  it('orders numbered files numerically, not alphabetically', () => {
+    expect(names([{ name: '10.pdf' }, { name: '2.pdf' }, { name: '1.pdf' }])).toEqual([
+      '1.pdf',
+      '2.pdf',
+      '10.pdf',
+    ]);
+  });
+
+  it('ignores case', () => {
+    expect(names([{ name: 'b.pdf' }, { name: 'A.pdf' }])).toEqual(['A.pdf', 'b.pdf']);
+  });
+
+  it('does not reorder the array it was given', () => {
+    const input = [{ name: 'b.pdf' }, { name: 'a.pdf' }];
+    orderForMerge(input);
+    expect(input[0].name).toBe('b.pdf');
+  });
+});
+
+describe('isPdfFile', () => {
+  it('accepts a file by its type', () => {
+    expect(isPdfFile(new File([], 'x', { type: 'application/pdf' }))).toBe(true);
+  });
+
+  it('accepts a file by its extension when the type is missing', () => {
+    expect(isPdfFile(new File([], 'scan.PDF', { type: '' }))).toBe(true);
+  });
+
+  it('rejects other files', () => {
+    expect(isPdfFile(new File([], 'photo.jpg', { type: 'image/jpeg' }))).toBe(false);
+  });
+});
+
+describe('skippedMessage', () => {
+  const result = (skipped: { name: string; reason: string }[]) => ({
+    added: [{ name: 'a.pdf', pageCount: 1 }],
+    skipped,
+  });
+
+  it('says nothing when nothing was skipped', () => {
+    expect(skippedMessage(result([]), 1)).toBeNull();
+  });
+
+  it('names the skipped file and says why', () => {
+    expect(skippedMessage(result([{ name: 'b.pdf', reason: 'Bad file.' }]), 2)).toBe(
+      'Imported 1 of 2 PDFs. b.pdf was skipped — Bad file.',
+    );
+  });
+
+  it('counts the rest when more than one was skipped', () => {
+    const r = result([
+      { name: 'b.pdf', reason: 'Bad file.' },
+      { name: 'c.pdf', reason: 'Other.' },
+      { name: 'd.pdf', reason: 'Other.' },
+    ]);
+    expect(skippedMessage(r, 4)).toBe(
+      'Imported 1 of 4 PDFs. b.pdf was skipped — Bad file. 2 other files were also skipped.',
+    );
+  });
+
+  it('uses the singular for exactly one other', () => {
+    const r = result([
+      { name: 'b.pdf', reason: 'Bad file.' },
+      { name: 'c.pdf', reason: 'Other.' },
+    ]);
+    expect(skippedMessage(r, 3)).toMatch(/1 other file was also skipped\.$/);
   });
 });
