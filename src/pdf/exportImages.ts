@@ -1,4 +1,5 @@
 import { zipSync } from 'fflate';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 export type ImageExportFormat = 'png' | 'jpeg';
 
@@ -82,4 +83,67 @@ export function bundleImages(
   });
 
   return { fileName: `${stem}-pages.zip`, bytes: zipSync(entries, { level: 0 }), mime: 'application/zip' };
+}
+
+/** Encode a canvas as image bytes. */
+function canvasBytes(canvas: HTMLCanvasElement, format: ImageExportFormat): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error('A page could not be encoded.'));
+          return;
+        }
+        blob.arrayBuffer().then((buf) => resolve(new Uint8Array(buf)), reject);
+      },
+      mimeOf(format),
+      0.92,
+    );
+  });
+}
+
+/**
+ * Render every page of a PDF to image bytes.
+ *
+ * Pass the EXPORTED document, not the source: that is what puts every edit in
+ * the images. pdf.js applies each page's /Rotate itself, so rotated pages come
+ * out upright, exactly as a viewer shows them.
+ *
+ * Pages are rendered one at a time and each canvas is released straight after
+ * encoding; a long document at 300 DPI would otherwise hold every page's pixels
+ * at once.
+ */
+export async function rasterisePdf(
+  proxy: PDFDocumentProxy,
+  format: ImageExportFormat,
+  dpi: number,
+): Promise<Uint8Array[]> {
+  const out: Uint8Array[] = [];
+
+  for (let i = 1; i <= proxy.numPages; i++) {
+    const page = await proxy.getPage(i);
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: exportScale(base.width, base.height, dpi) });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) throw new Error('Could not acquire a 2D canvas context.');
+
+    // JPEG has no alpha: paint the page white first so nothing composites
+    // against black.
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    await page.render({ canvasContext: context, viewport }).promise;
+    out.push(await canvasBytes(canvas, format));
+
+    page.cleanup();
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+
+  return out;
 }

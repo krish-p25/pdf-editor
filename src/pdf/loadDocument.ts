@@ -22,22 +22,27 @@ export interface LoadedPdf {
   proxy: PDFDocumentProxy;
 }
 
-/** Open raw PDF bytes, returning a render proxy and the page geometry. */
-export async function openBytes(bytes: Uint8Array, fileName: string): Promise<LoadedPdf> {
-  let proxy: PDFDocumentProxy;
+/**
+ * Open PDF bytes in pdf.js.
+ *
+ * pdf.js takes ownership of the buffer it is given and detaches it, so it is
+ * handed a copy: callers keep their bytes intact for pdf-lib.
+ */
+export async function openProxy(bytes: Uint8Array): Promise<PDFDocumentProxy> {
   try {
-    // pdf.js takes ownership of the buffer it is given, so hand it a copy and
-    // keep ours intact for pdf-lib at export time.
-    proxy = await pdfjs.getDocument({ data: bytes.slice() }).promise;
+    return await pdfjs.getDocument({ data: bytes.slice() }).promise;
   } catch (e) {
     const name = (e as { name?: string }).name;
     if (name === 'PasswordException') {
-      throw new PdfLoadError(
-        'This PDF is password-protected. Encrypted PDFs are not supported.',
-      );
+      throw new PdfLoadError('This PDF is password-protected. Encrypted PDFs are not supported.');
     }
     throw new PdfLoadError('This file could not be opened as a PDF.');
   }
+}
+
+/** Open raw PDF bytes, returning a render proxy and the page geometry. */
+export async function openBytes(bytes: Uint8Array, fileName: string): Promise<LoadedPdf> {
+  const proxy = await openProxy(bytes);
 
   const pages: Page[] = [];
   for (let i = 1; i <= proxy.numPages; i++) {
