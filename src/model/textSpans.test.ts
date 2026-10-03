@@ -345,13 +345,14 @@ describe('remapSpans', () => {
   });
 
   it('keeps several spans in step through one edit', () => {
+    // Inserted clear of either span, so this is purely about shifting.
     const got = remapSpans(
       [
         { start: 0, end: 2, bold: true },
         { start: 6, end: 8, italic: true },
       ],
       'abcdefgh',
-      'abXcdefgh',
+      'abcdXefgh',
     );
     expect(ranges(got)).toEqual([
       [0, 2],
@@ -373,5 +374,65 @@ describe('remapSpans', () => {
       'abcd',
     );
     expect(ranges(got)).toEqual([[0, 4]]);
+  });
+});
+
+describe('what inserted text inherits', () => {
+  const bold = (start: number, end: number) => ({ start, end, bold: true });
+
+  it('continues the styling of the word it is typed onto', () => {
+    // Caret at the end of a bold word: the new characters join it, which is
+    // what every word processor does.
+    const got = remapSpans([bold(0, 5)], 'Hello world', 'Helloo world');
+    expect(ranges(got)).toEqual([[0, 6]]);
+  });
+
+  it('stays plain when typed at the end of plain text', () => {
+    expect(remapSpans([bold(0, 5)], 'Hello world', 'Hello worldX')).toEqual([bold(0, 5)]);
+  });
+
+  it('does not reach across a boundary to the styling on the right', () => {
+    // Typing just before a bold word inherits the plain text to the left.
+    const got = remapSpans([bold(6, 11)], 'Hello world', 'Hello Xworld');
+    expect(ranges(got)).toEqual([[7, 12]]);
+  });
+
+  it('takes the styling to the right when there is nothing to the left', () => {
+    // At offset zero typing joins the styled text that follows, rather than
+    // leaving a stray plain character in front of it.
+    const got = remapSpans([bold(0, 5)], 'Hello world', 'XHello world');
+    expect(ranges(got)).toEqual([[0, 6]]);
+  });
+
+  it('keeps the styling of a word that is retyped', () => {
+    // Replacing a selection takes the styling of what it replaced; inheriting
+    // from the plain spaces either side would strip bold off a passage every
+    // time it was reworded.
+    const got = remapSpans([bold(6, 11)], 'Hello world', 'Hello there');
+    expect(ranges(got)).toEqual([[6, 11]]);
+    expect(got[0].bold).toBe(true);
+  });
+
+  it('keeps the styling when a styled word is replaced by a longer one', () => {
+    const got = remapSpans([bold(6, 11)], 'Hello world', 'Hello everyone');
+    expect(ranges(got)).toEqual([[6, 14]]);
+  });
+
+  it('does not style a replacement for plain text', () => {
+    const got = remapSpans([bold(0, 5)], 'Hello world', 'Hello there');
+    expect(ranges(got)).toEqual([[0, 5]]);
+  });
+
+  it('still inherits a uniform stretch it is typed into', () => {
+    const got = remapSpans([bold(0, 11)], 'Hello world', 'Hello brave world');
+    expect(ranges(got)).toEqual([[0, 17]]);
+  });
+
+  it('leaves text inserted into an unstyled box unstyled', () => {
+    expect(remapSpans(undefined, 'Hello', 'Hello there')).toEqual([]);
+  });
+
+  it('handles typing into a box that was empty', () => {
+    expect(remapSpans([], '', 'Hello')).toEqual([]);
   });
 });
