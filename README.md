@@ -58,6 +58,7 @@ This one does the work locally. No upload means no privacy question to worry abo
 - **Snapping** to other objects' edges and centres, to the page edges and centrelines, and to equal spacing between objects
 - The object you snapped *to* is highlighted, so you can see what you lined up with
 - Hold <kbd>Alt</kbd> to place something freely
+- **Align and distribute** — line several objects up by their edges or centres, space three or more evenly, or centre a single object on the page; works the way you see it on rotated pages too
 
 ### Exporting
 - **Export a PDF** with every change baked in, named after the document title
