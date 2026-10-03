@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   dataUrlToBytes,
   isJpegDataUrl,
+  isUsableDecode,
   loadImageFile,
   looksLikeImage,
   ImageLoadError,
@@ -104,5 +105,40 @@ describe('isJpegDataUrl', () => {
   it('distinguishes the two embeddable formats', () => {
     expect(isJpegDataUrl('data:image/jpeg;base64,AAAA')).toBe(true);
     expect(isJpegDataUrl('data:image/png;base64,AAAA')).toBe(false);
+  });
+});
+
+describe('isUsableDecode', () => {
+  it('accepts an ordinary photo', () => {
+    expect(isUsableDecode(4032, 3024)).toBe(true);
+  });
+
+  it('accepts a small but real image', () => {
+    // The bar is not a guess at what counts as a photo: a small HEIC is still
+    // a valid HEIC, and rejecting it would only mean a slower correct answer.
+    expect(isUsableDecode(16, 16)).toBe(true);
+    expect(isUsableDecode(2, 2)).toBe(true);
+  });
+
+  it('rejects a decode that produced nothing', () => {
+    // A decoder that resolves with a zero-sized image has not decoded
+    // anything; trusting it would put a blank rectangle on the page.
+    expect(isUsableDecode(0, 0)).toBe(false);
+    expect(isUsableDecode(0, 800)).toBe(false);
+    expect(isUsableDecode(800, 0)).toBe(false);
+  });
+
+  it('rejects a placeholder pixel', () => {
+    expect(isUsableDecode(1, 1)).toBe(false);
+  });
+
+  it('rejects one degenerate edge even when the other is large', () => {
+    expect(isUsableDecode(1, 4032)).toBe(false);
+    expect(isUsableDecode(4032, 1)).toBe(false);
+  });
+
+  it('rejects values that are not real numbers', () => {
+    expect(isUsableDecode(NaN, NaN)).toBe(false);
+    expect(isUsableDecode(Infinity, 100)).toBe(false);
   });
 });
