@@ -6,6 +6,8 @@ export interface DrawnText {
   size: number;
   x: number;
   y: number;
+  /** Anticlockwise degrees, normalised to [0, 360). Upright text is 0. */
+  angle: number;
 }
 
 /**
@@ -43,13 +45,20 @@ export async function drawnTextOnPage(bytes: Uint8Array, pageIndex: number): Pro
   for (const block of source.split('BT').slice(1)) {
     const body = block.split('ET')[0];
     const tf = body.match(/\/([^\s/]+)\s+([\d.]+)\s+Tf/);
-    const tm = body.match(/1 0 0 1 (-?[\d.]+) (-?[\d.]+) Tm/);
+    // The full text matrix, so rotated text is found too: a b c d e f Tm.
+    const tm = body.match(
+      /(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) Tm/,
+    );
     if (!tf || !tm) continue;
+    const a = Number(tm[1]);
+    const b = Number(tm[2]);
+    const degreesAnticlockwise = Math.round((Math.atan2(b, a) * 180) / Math.PI);
     out.push({
       font: tf[1],
       size: Number(tf[2]),
-      x: Number(tm[1]),
-      y: Number(tm[2]),
+      x: Number(tm[5]),
+      y: Number(tm[6]),
+      angle: ((degreesAnticlockwise % 360) + 360) % 360,
     });
   }
 
