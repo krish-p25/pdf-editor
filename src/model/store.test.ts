@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { canUndo, useStore } from './store';
-import type { Doc, ShapeObject, TextObject } from './types';
+import type { Doc, PageLabel, ShapeObject, TextObject } from './types';
 
 const textObject: TextObject = {
   id: 't1',
@@ -719,5 +719,59 @@ describe('distributing objects', () => {
     expect(obj('t1').x).toBe(10);
     expect(obj('s1').x).toBe(50);
     expect(canUndo()).toBe(false);
+  });
+});
+
+describe('page labels', () => {
+  const label: PageLabel = {
+    id: 'l1',
+    text: 'Page {page}',
+    position: 'bottom',
+    align: 'center',
+    fontSize: 10,
+    color: '#333333',
+    margin: 24,
+  };
+  const labels = () => useStore.getState().doc!.pageLabels;
+
+  it('stores labels on the document', () => {
+    useStore.getState().setPageLabels([label]);
+    expect(labels()).toEqual([label]);
+  });
+
+  it('stores no labels as nothing rather than an empty list', () => {
+    useStore.getState().setPageLabels([label]);
+    useStore.getState().setPageLabels([]);
+    expect(labels()).toBeUndefined();
+  });
+
+  it('is undoable', () => {
+    useStore.getState().setPageLabels([label]);
+    useStore.getState().undo();
+    expect(labels()).toBeUndefined();
+  });
+
+  it('is redoable', () => {
+    useStore.getState().setPageLabels([label]);
+    useStore.getState().undo();
+    useStore.getState().redo();
+    expect(labels()).toEqual([label]);
+  });
+
+  it('survives undoing an unrelated edit', () => {
+    // Undo restores whole snapshots, so labels must be in them - or undoing a
+    // move would quietly delete the page numbers.
+    useStore.getState().setPageLabels([label]);
+    useStore.getState().updateObject('t1', { x: 99 });
+    useStore.getState().undo();
+    expect(labels()).toEqual([label]);
+    expect(useStore.getState().doc!.objects.t1.x).toBe(10);
+  });
+
+  it('restores the earlier text after an edit is undone', () => {
+    useStore.getState().setPageLabels([label]);
+    useStore.getState().setPageLabels([{ ...label, text: 'Changed' }]);
+    useStore.getState().undo();
+    expect(labels()![0].text).toBe('Page {page}');
   });
 });

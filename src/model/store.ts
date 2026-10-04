@@ -11,6 +11,7 @@ import type {
   ObjectId,
   Page,
   PageId,
+  PageLabel,
   Rect,
   Rotation,
   SpanStyle,
@@ -26,6 +27,7 @@ export const nextId = (prefix: string): string =>
 interface Snapshot {
   pages: Page[];
   objects: Record<ObjectId, EditorObject>;
+  pageLabels?: PageLabel[];
 }
 
 interface State {
@@ -69,6 +71,8 @@ interface State {
   setError(message: string | null): void;
   /** Rename the document. */
   setTitle(title: string): void;
+  /** Replace the document's headers, footers and page numbers. */
+  setPageLabels(labels: PageLabel[]): void;
 
   select(ids: ObjectId[]): void;
   clearSelection(): void;
@@ -128,6 +132,7 @@ const history = createHistory<Snapshot>({ pages: [], objects: {} });
 const snapshot = (doc: Doc): Snapshot => ({
   pages: doc.pages.map((p) => ({ ...p, objectIds: [...p.objectIds] })),
   objects: Object.fromEntries(Object.entries(doc.objects).map(([k, v]) => [k, { ...v }])),
+  pageLabels: doc.pageLabels?.map((l) => ({ ...l })),
 });
 
 export const useStore = create<State>((set, get) => {
@@ -160,7 +165,7 @@ export const useStore = create<State>((set, get) => {
     const { doc } = get();
     if (!doc || !s) return;
     set({
-      doc: { ...doc, pages: s.pages, objects: s.objects },
+      doc: { ...doc, pages: s.pages, objects: s.objects, pageLabels: s.pageLabels },
       selection: get().selection.filter((id) => id in s.objects),
       activePageId: s.pages.some((p) => p.id === get().activePageId)
         ? get().activePageId
@@ -251,6 +256,14 @@ export const useStore = create<State>((set, get) => {
     setZoom: (zoom) => set({ zoom: Math.min(4, Math.max(0.25, Math.round(zoom * 100) / 100)) }),
     setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
     setError: (error) => set({ error }),
+
+    setPageLabels(labels) {
+      // Unlike the title, labels change what the exported pages contain, so
+      // they are an edit like any other and go through undo history.
+      mutate((doc) => {
+        doc.pageLabels = labels.length > 0 ? labels : undefined;
+      });
+    },
 
     setTitle(title) {
       const { doc } = get();
