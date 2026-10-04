@@ -155,6 +155,27 @@ export interface ImageObject extends BaseObject {
 
 export type EditorObject = TextObject | ShapeObject | ImageObject;
 
+export type LabelPosition = 'top' | 'bottom';
+
+/**
+ * Text repeated on every page: a page number, a running header, a footer.
+ *
+ * Stored once on the document and rendered on every page, rather than as an
+ * object per page, so numbering stays right however pages are reordered,
+ * added or deleted.
+ */
+export interface PageLabel {
+  id: string;
+  /** Template. `{page}` becomes the page number, `{pages}` the page count. */
+  text: string;
+  position: LabelPosition;
+  align: TextAlign;
+  fontSize: number;
+  color: string;
+  /** Distance from the page edge to the nearest edge of the text, in points. */
+  margin: number;
+}
+
 /** The whole working document. `sourceBytes` is never mutated. */
 export interface Doc {
   /** Storage key. Generated per upload, so the same file can be opened twice. */
@@ -170,6 +191,11 @@ export interface Doc {
   /** Array order IS the export order. */
   pages: Page[];
   objects: Record<ObjectId, EditorObject>;
+  /**
+   * Headers, footers and page numbers. Absent on documents saved before they
+   * existed, which simply have none.
+   */
+  pageLabels?: PageLabel[];
 }
 
 /** A page added in the editor rather than copied from the uploaded PDF. */
