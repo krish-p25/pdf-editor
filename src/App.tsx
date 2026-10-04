@@ -29,6 +29,7 @@ import { DropZone } from './components/DropZone';
 import { Toolbar } from './components/Toolbar';
 import { ThumbnailRail } from './components/ThumbnailRail';
 import { PageCanvas } from './components/PageCanvas';
+import { PageLabelsOverlay } from './components/PageLabelsOverlay';
 import { ObjectLayer } from './components/ObjectLayer';
 import { PropertiesPanel } from './components/PropertiesPanel';
 
@@ -447,7 +448,20 @@ export default function App() {
         <main className="flex-1 overflow-auto bg-slate-200 p-8">
           <div className="flex justify-center">
             {activePage && (
-              <PageCanvas proxy={proxy} page={activePage} zoom={zoom}>
+              <PageCanvas
+                proxy={proxy}
+                page={activePage}
+                zoom={zoom}
+                displayOverlay={
+                  <PageLabelsOverlay
+                    page={activePage}
+                    index={doc.pages.findIndex((p) => p.id === activePage.id)}
+                    count={doc.pages.length}
+                    labels={doc.pageLabels ?? []}
+                    zoom={zoom}
+                  />
+                }
+              >
                 <ObjectLayer page={activePage} zoom={zoom} />
               </PageCanvas>
             )}
