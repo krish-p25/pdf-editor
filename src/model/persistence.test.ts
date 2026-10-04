@@ -9,7 +9,7 @@ import {
   resetPersistenceForTests,
   saveDocument,
 } from './persistence';
-import type { Doc, EditorObject, Page } from './types';
+import type { Doc, EditorObject, Page, PageLabel } from './types';
 
 const DB_NAME = 'pdf-editor';
 
@@ -206,5 +206,29 @@ describe('upgrading from the single-session schema', () => {
 
     const names = (await listDocuments()).map((s) => s.fileName).sort();
     expect(names).toEqual(['fresh.pdf', 'legacy.pdf']);
+  });
+});
+
+describe('page labels', () => {
+  const label: PageLabel = {
+    id: 'l1',
+    text: 'Page {page} of {pages}',
+    position: 'bottom',
+    align: 'center',
+    fontSize: 10,
+    color: '#333333',
+    margin: 24,
+  };
+
+  it('saves and restores them', async () => {
+    const d = doc({ pageLabels: [label] });
+    await saveDocument(d);
+    expect((await loadStoredDocument(d.id))!.pageLabels).toEqual([label]);
+  });
+
+  it('loads a document saved without them', async () => {
+    const d = doc();
+    await saveDocument(d);
+    expect((await loadStoredDocument(d.id))!.pageLabels).toBeUndefined();
   });
 });

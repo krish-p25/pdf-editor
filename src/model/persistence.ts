@@ -1,7 +1,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import { migrateDoc } from './migrate';
 import { titleFromFileName } from './title';
-import type { Doc, EditorObject, ObjectId, Page } from './types';
+import type { Doc, EditorObject, ObjectId, Page, PageLabel } from './types';
 
 const DB_NAME = 'pdf-editor';
 const DB_VERSION = 2;
@@ -29,6 +29,8 @@ interface StoredDocument {
   sourceBytes: ArrayBuffer;
   pages: Page[];
   objects: Record<ObjectId, EditorObject>;
+  /** Absent on records written before page labels existed. */
+  pageLabels?: PageLabel[];
   savedAt: number;
 }
 
@@ -118,6 +120,7 @@ export async function saveDocument(doc: Doc): Promise<boolean> {
       sourceBytes: doc.sourceBytes.slice().buffer,
       pages: doc.pages,
       objects: doc.objects,
+      pageLabels: doc.pageLabels,
       savedAt: Date.now(),
     };
 
@@ -151,6 +154,7 @@ export async function loadStoredDocument(id: string): Promise<Doc | null> {
       sourceBytes: new Uint8Array(s.sourceBytes),
       pages: s.pages,
       objects: s.objects,
+      pageLabels: s.pageLabels,
     });
   } catch {
     available = false;
