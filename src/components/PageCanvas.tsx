@@ -9,6 +9,11 @@ interface Props {
   page: Page;
   zoom: number;
   children?: ReactNode;
+  /**
+   * Drawn in display space, OUTSIDE the rotated page box, so it stays upright
+   * when the page is rotated. Children, by contrast, live in page space.
+   */
+  displayOverlay?: ReactNode;
 }
 
 /**
@@ -18,7 +23,7 @@ interface Props {
  * everything inside — including the object layer — works purely in unrotated
  * page coordinates and needs no rotation awareness of its own.
  */
-export function PageCanvas({ proxy, page, zoom, children }: Props) {
+export function PageCanvas({ proxy, page, zoom, children, displayOverlay }: Props) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -89,6 +94,7 @@ export function PageCanvas({ proxy, page, zoom, children }: Props) {
         )}
         {children}
       </div>
+      {displayOverlay}
     </div>
   );
 }

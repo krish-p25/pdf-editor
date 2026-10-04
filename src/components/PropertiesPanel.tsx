@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { useStore } from '../model/store';
+import { nextId, useStore } from '../model/store';
+import { headerLabel, pageNumberLabel } from '../model/pageLabels';
 import { defaultStyleOf, rangeStyle, type StyleKey } from '../model/textSpans';
 import { lineLength } from '../geometry/lines';
 import { FULL_CROP } from '../geometry/images';
@@ -10,6 +11,7 @@ import {
   isLine,
   isText,
   type EditorObject,
+  type PageLabel,
   type TextObject,
 } from '../model/types';
 
@@ -35,7 +37,7 @@ export function PropertiesPanel() {
             <AlignSection ids={selection} />
           </>
         ) : (
-          'Nothing selected'
+          <PageLabelsSection />
         )}
       </aside>
     );
@@ -434,6 +436,7 @@ function Toggle({
   bold,
   italic,
   mixed,
+  hint,
 }: {
   on: boolean;
   onClick(): void;
@@ -442,6 +445,8 @@ function Toggle({
   italic?: boolean;
   /** Part of the highlight has this on and part has it off. */
   mixed?: boolean;
+  /** Accessible name and tooltip, for a glyph that does not explain itself. */
+  hint?: string;
 }) {
   return (
     <button
@@ -451,7 +456,8 @@ function Toggle({
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       aria-pressed={mixed ? 'mixed' : on}
-      title={mixed ? 'Mixed across the highlighted text' : undefined}
+      aria-label={hint}
+      title={mixed ? 'Mixed across the highlighted text' : hint}
       className={`h-7 w-7 rounded border text-sm ${
         mixed
           ? 'border-amber-400 bg-amber-50 text-amber-700'
@@ -544,6 +550,110 @@ function AlignSection({ ids }: { ids: string[] }) {
           )}
         </>
       )}
+    </Section>
+  );
+}
+
+/** Stable empty list, so the store selector does not return a new array each render. */
+const NO_LABELS: PageLabel[] = [];
+
+const ALIGN_HINTS = { left: 'Align left', center: 'Align centre', right: 'Align right' } as const;
+
+/**
+ * Headers, footers and page numbers, shown when nothing is selected.
+ *
+ * Every edit replaces the whole list through setPageLabels, so each change is
+ * one undo step and the stored list is never mutated in place.
+ */
+function PageLabelsSection() {
+  const labels = useStore((s) => s.doc?.pageLabels ?? NO_LABELS);
+  const title = useStore((s) => s.doc?.title ?? '');
+  const setPageLabels = useStore((s) => s.setPageLabels);
+
+  const update = (id: string, patch: Partial<PageLabel>) =>
+    setPageLabels(labels.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  const remove = (id: string) => setPageLabels(labels.filter((l) => l.id !== id));
+  const add = (label: PageLabel) => setPageLabels([...labels, label]);
+
+  return (
+    <Section title="Headers & footers">
+      {labels.map((l) => (
+        <div key={l.id} className="space-y-2 rounded-md border border-edge bg-white p-2">
+          <input
+            value={l.text}
+            onChange={(e) => update(l.id, { text: e.target.value })}
+            aria-label="Label text"
+            className="w-full rounded border border-edge px-2 py-1 text-sm text-slate-700"
+          />
+          <Row label="Position">
+            <div className="flex gap-1">
+              <Toggle
+                on={l.position === 'top'}
+                onClick={() => update(l.id, { position: 'top' })}
+                label="↑"
+                hint="Top of page"
+              />
+              <Toggle
+                on={l.position === 'bottom'}
+                onClick={() => update(l.id, { position: 'bottom' })}
+                label="↓"
+                hint="Bottom of page"
+              />
+            </div>
+          </Row>
+          <Row label="Align">
+            <div className="flex gap-1">
+              {(['left', 'center', 'right'] as const).map((a) => (
+                <Toggle
+                  key={a}
+                  on={l.align === a}
+                  onClick={() => update(l.id, { align: a })}
+                  label={a === 'left' ? '⇤' : a === 'center' ? '↔' : '⇥'}
+                  hint={ALIGN_HINTS[a]}
+                />
+              ))}
+            </div>
+          </Row>
+          <Row label="Size">
+            <NumberInput
+              value={l.fontSize}
+              min={4}
+              max={72}
+              step={1}
+              onChange={(v) => update(l.id, { fontSize: v })}
+            />
+          </Row>
+          <Row label="Colour">
+            <ColorInput value={l.color} onChange={(v) => update(l.id, { color: v })} />
+          </Row>
+          <Row label="Margin">
+            <NumberInput
+              value={l.margin}
+              min={0}
+              max={200}
+              step={1}
+              onChange={(v) => update(l.id, { margin: Math.max(0, v) })}
+            />
+          </Row>
+          <button
+            type="button"
+            onClick={() => remove(l.id)}
+            className="w-full rounded border border-red-200 py-1 text-xs text-red-600 hover:bg-red-50"
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+
+      <div className="flex gap-2">
+        <SmallButton onClick={() => add(pageNumberLabel(nextId('label')))}>
+          Add page numbers
+        </SmallButton>
+        <SmallButton onClick={() => add(headerLabel(nextId('label'), title))}>Add header</SmallButton>
+      </div>
+      <div className="text-xs text-slate-400">
+        Use {'{page}'} and {'{pages}'} for numbering. Labels follow page reordering automatically.
+      </div>
     </Section>
   );
 }

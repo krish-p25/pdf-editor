@@ -31,6 +31,7 @@ This one does the work locally. No upload means no privacy question to worry abo
 - **Reorder pages** — drag thumbnails in the sidebar
 - **Delete pages** — remove any page you don't want (undoable)
 - **Rotate pages** — ±90° per page, for scans that arrive sideways
+- **Page numbers, headers and footers** — text repeated on every page, such as "Page 3 of 12", top or bottom, left, centre or right; it renumbers itself when pages are reordered and stays upright on rotated pages
 - **Merge PDFs** — drop several PDFs on the start screen to combine them into one document, or import several into an open one; they go in by filename order (`2.pdf` before `10.pdf`) and can be reordered after
 
 ### Adding text to a PDF

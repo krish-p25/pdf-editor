@@ -14,8 +14,9 @@ import { renderPage } from '../pdf/renderPage';
 import { displaySize } from '../geometry/coords';
 import { fitWithin } from '../geometry/images';
 import { PageObjects } from './PageObjects';
+import { PageLabelsOverlay } from './PageLabelsOverlay';
 import { useStore } from '../model/store';
-import type { EditorObject, Page } from '../model/types';
+import type { EditorObject, Page, PageLabel } from '../model/types';
 
 interface Props {
   proxy: PDFDocumentProxy;
@@ -58,6 +59,8 @@ export function ThumbnailRail({ proxy, onImportPdfs }: Props) {
               page={page}
               objects={page.objectIds.map((id) => doc.objects[id]).filter(Boolean) as EditorObject[]}
               index={i}
+              labels={doc.pageLabels ?? []}
+              count={doc.pages.length}
               active={page.id === activePageId}
               canDelete={doc.pages.length > 1}
               onSelect={() => setActivePage(page.id)}
@@ -102,12 +105,24 @@ interface ThumbProps {
   page: Page;
   objects: EditorObject[];
   index: number;
+  labels: readonly PageLabel[];
+  count: number;
   active: boolean;
   canDelete: boolean;
   onSelect(): void;
 }
 
-function Thumbnail({ proxy, page, objects, index, active, canDelete, onSelect }: ThumbProps) {
+function Thumbnail({
+  proxy,
+  page,
+  objects,
+  index,
+  labels,
+  count,
+  active,
+  canDelete,
+  onSelect,
+}: ThumbProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: page.id,
   });
@@ -189,6 +204,14 @@ function Thumbnail({ proxy, page, objects, index, active, canDelete, onSelect }:
               )}
               <PageObjects objects={objects} zoom={cssScale} />
             </div>
+
+            <PageLabelsOverlay
+              page={page}
+              index={index}
+              count={count}
+              labels={labels}
+              zoom={cssScale}
+            />
 
             {page.sourceIndex === null && objects.length === 0 && (
               <span className="absolute inset-0 flex items-center justify-center text-xs italic text-slate-300">
