@@ -68,3 +68,65 @@ describe('align controls', () => {
     expect([obj('a').x, obj('b').x, obj('c').x]).toEqual([10, 155, 300]);
   });
 });
+
+describe('headers and footers', () => {
+  const labelDoc = (): Doc => ({
+    id: 'd2',
+    title: 'Quarterly report',
+    fileName: 'q.pdf',
+    sourceBytes: new Uint8Array([1]),
+    pages: [{ id: 'p1', sourceIndex: 0, rotation: 0, width: 600, height: 800, objectIds: [] }],
+    objects: {},
+  });
+
+  const labels = () => useStore.getState().doc!.pageLabels ?? [];
+  const press = (name: string) => fireEvent.click(screen.getByRole('button', { name }));
+
+  beforeEach(() => useStore.getState().loadDoc(labelDoc()));
+
+  it('adds page numbers from the empty panel', () => {
+    render(<PropertiesPanel />);
+    press('Add page numbers');
+    expect(labels()).toHaveLength(1);
+    expect(labels()[0]).toMatchObject({
+      text: 'Page {page} of {pages}',
+      position: 'bottom',
+      align: 'center',
+    });
+  });
+
+  it('adds a header carrying the document title', () => {
+    render(<PropertiesPanel />);
+    press('Add header');
+    expect(labels()[0]).toMatchObject({ text: 'Quarterly report', position: 'top' });
+  });
+
+  it('edits a label in place', () => {
+    render(<PropertiesPanel />);
+    press('Add page numbers');
+    fireEvent.change(screen.getByLabelText('Label text'), { target: { value: 'Draft {page}' } });
+    expect(labels()[0].text).toBe('Draft {page}');
+  });
+
+  it('moves a label to the top of the page', () => {
+    render(<PropertiesPanel />);
+    press('Add page numbers');
+    press('Top of page');
+    expect(labels()[0].position).toBe('top');
+  });
+
+  it('removes a label', () => {
+    render(<PropertiesPanel />);
+    press('Add page numbers');
+    press('Remove');
+    expect(useStore.getState().doc!.pageLabels).toBeUndefined();
+  });
+
+  it('still shows alignment, not labels, for a multiple selection', () => {
+    useStore.getState().loadDoc(doc());
+    useStore.getState().select(['a', 'b']);
+    render(<PropertiesPanel />);
+    expect(screen.queryByRole('button', { name: 'Add page numbers' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Top' })).toBeTruthy();
+  });
+});
