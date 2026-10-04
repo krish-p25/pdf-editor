@@ -22,8 +22,11 @@ import {
   type Doc,
   type ImageObject,
   type LineShapeObject,
+  type Page,
+  type PageLabel,
   type TextObject,
 } from '../model/types';
+import { formatLabel, labelPdfPlacement, measureLabel } from '../model/pageLabels';
 
 export type FontSet = Record<FontVariant, FontMetrics>;
 
@@ -287,6 +290,37 @@ async function drawImageObject(
 }
 
 /**
+ * Draw the document's headers, footers and page numbers onto one page.
+ *
+ * Placement is worked out in display space and mapped back, and the text is
+ * turned by the page rotation, so a label reads upright at the visual top or
+ * bottom however the page is turned. See labelPdfPlacement.
+ */
+function drawPageLabels(
+  pdfPage: PDFPage,
+  modelPage: Page,
+  index: number,
+  count: number,
+  labels: readonly PageLabel[],
+  metrics: FontMetrics,
+  font: PDFFont,
+): void {
+  for (const label of labels) {
+    const text = formatLabel(label.text, index, count);
+    if (text.trim() === '') continue;
+    const at = labelPdfPlacement(label, modelPage, measureLabel(metrics, text, label.fontSize));
+    pdfPage.drawText(text, {
+      x: at.x,
+      y: at.y,
+      size: label.fontSize,
+      font,
+      color: hexToRgb(label.color),
+      rotate: degrees(at.angle),
+    });
+  }
+}
+
+/**
  * Build the exported PDF: copy the surviving source pages in the user's order,
  * apply rotation, then draw each page's objects back-to-front.
  *
@@ -309,6 +343,10 @@ export async function exportPdf(doc: Doc, fonts: FontSet): Promise<Uint8Array> {
     // bold or italic on its own.
     if (isText(o)) for (const v of variantsOf(o, o.spans)) used.add(v);
   }
+
+  const labels = doc.pageLabels ?? [];
+  // Labels are set in Inter Regular, whatever the text boxes use.
+  if (labels.length > 0) used.add('regular');
 
   const embedded = {} as Record<FontVariant, PDFFont>;
   for (const v of used) {
@@ -348,6 +386,11 @@ export async function exportPdf(doc: Doc, fonts: FontSet): Promise<Uint8Array> {
       } else {
         drawBoxShape(pdfPage, o, modelPage.height);
       }
+    }
+
+    // After the objects, so a label is never hidden underneath one.
+    if (labels.length > 0) {
+      drawPageLabels(pdfPage, modelPage, i, doc.pages.length, labels, fonts.regular, embedded.regular);
     }
   }
 

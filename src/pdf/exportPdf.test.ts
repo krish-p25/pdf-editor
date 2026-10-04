@@ -5,7 +5,8 @@ import { exportPdf, hexToRgb, type FontSet } from './exportPdf';
 import { createMetrics, layoutStyledText, layoutText, lineX } from './fontMetrics';
 import { defaultStyleOf } from '../model/textSpans';
 import { drawnTextOnPage } from './contentStream';
-import type { Doc, ImageObject, Page, TextObject } from '../model/types';
+import type { Doc, ImageObject, Page, PageLabel, TextObject } from '../model/types';
+import { formatLabel, labelPdfPlacement, measureLabel } from '../model/pageLabels';
 
 let source: Uint8Array;
 let fonts: FontSet;
@@ -522,5 +523,113 @@ describe('export round-trip: styled runs', () => {
     const o = text({ text: 'Hello world' });
     const drawn = await inter(await exportPdf(doc([page('a', 0, ['t1'])], { t1: o }), fonts));
     expect(drawn).toHaveLength(1);
+  });
+});
+
+describe('page labels', () => {
+  const label = (over: Partial<PageLabel> = {}): PageLabel => ({
+    id: 'l1',
+    text: 'Page {page} of {pages}',
+    position: 'bottom',
+    align: 'center',
+    fontSize: 10,
+    color: '#333333',
+    margin: 24,
+    ...over,
+  });
+
+  const withLabels = (pages: Page[], labels: PageLabel[]): Doc => ({
+    ...doc(pages),
+    pageLabels: labels,
+  });
+
+  const inter = async (bytes: Uint8Array, i: number) =>
+    (await drawnTextOnPage(bytes, i)).filter((d) => d.font.startsWith('Inter'));
+
+  /** Where the label should land, computed independently of the exporter. */
+  const expected = (l: PageLabel, p: Page, index: number, count: number) =>
+    labelPdfPlacement(l, p, measureLabel(fonts.regular, formatLabel(l.text, index, count), l.fontSize));
+
+  it('draws a label on every page', async () => {
+    const out = await exportPdf(
+      withLabels([page('a', 0), page('b', 1), page('c', 2)], [label()]),
+      fonts,
+    );
+    for (let i = 0; i < 3; i++) expect(await inter(out, i)).toHaveLength(1);
+  });
+
+  it('draws nothing extra when there are no labels', async () => {
+    const out = await exportPdf(doc([page('a', 0)]), fonts);
+    expect(await inter(out, 0)).toHaveLength(0);
+  });
+
+  it('places a label where labelPdfPlacement says', async () => {
+    const p = page('a', 0);
+    const out = await exportPdf(withLabels([p], [label()]), fonts);
+    const [d] = await inter(out, 0);
+    const at = expected(label(), p, 0, 1);
+
+    expect(d.x).toBeCloseTo(at.x, 2);
+    expect(d.y).toBeCloseTo(at.y, 2);
+    expect(d.angle).toBe(0);
+    expect(d.size).toBe(10);
+  });
+
+  it('turns the label with a rotated page so it reads upright', async () => {
+    for (const rotation of [90, 180, 270] as const) {
+      const p = { ...page('a', 0), rotation };
+      const out = await exportPdf(withLabels([p], [label()]), fonts);
+      const drawn = await inter(out, 0);
+      expect(drawn).toHaveLength(1);
+      const at = expected(label(), p, 0, 1);
+
+      expect(drawn[0].angle).toBe(rotation);
+      expect(drawn[0].x).toBeCloseTo(at.x, 2);
+      expect(drawn[0].y).toBeCloseTo(at.y, 2);
+    }
+  });
+
+  it('numbers pages in export order, not source order', async () => {
+    // Ten pages: source page 2 first, source page 0 last, blanks between.
+    // Page 10 must read "10". If numbering came from the source index it
+    // would read "1", and "1" is one digit narrower than "10", so its
+    // right-aligned x differs by a whole glyph - well outside the tolerance.
+    const blanks = Array.from({ length: 8 }, (_, k) => ({
+      ...page(`blank${k}`, 0),
+      sourceIndex: null,
+    }));
+    const pages = [page('c', 2), ...blanks, page('a', 0)];
+    const l = label({ text: '{page}', align: 'right' });
+    const out = await exportPdf(withLabels(pages, [l]), fonts);
+
+    const [last] = await inter(out, 9);
+    expect(last.x).toBeCloseTo(expected(l, pages[9], 9, 10).x, 2);
+
+    const [first] = await inter(out, 0);
+    expect(first.x).toBeCloseTo(expected(l, pages[0], 0, 10).x, 2);
+  });
+
+  it('skips a label whose text is blank', async () => {
+    const out = await exportPdf(withLabels([page('a', 0)], [label({ text: '   ' })]), fonts);
+    expect(await inter(out, 0)).toHaveLength(0);
+  });
+
+  it('draws a header and a footer together', async () => {
+    const out = await exportPdf(
+      withLabels([page('a', 0)], [label(), label({ id: 'h', text: 'Report', position: 'top' })]),
+      fonts,
+    );
+    expect(await inter(out, 0)).toHaveLength(2);
+  });
+
+  it('draws labels in front of the page objects', async () => {
+    // Drawn after the objects, so a label is never hidden under a shape.
+    const t: TextObject = { ...text(), pageId: 'a' };
+    const p = page('a', 0, ['t1']);
+    const out = await exportPdf({ ...doc([p], { t1: t }), pageLabels: [label()] }, fonts);
+    const drawn = await inter(out, 0);
+
+    expect(drawn).toHaveLength(2);
+    expect(drawn[1].size).toBe(10);
   });
 });
