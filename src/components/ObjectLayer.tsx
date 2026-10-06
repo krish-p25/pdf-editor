@@ -455,7 +455,13 @@ export function ObjectLayer({ page, zoom }: Props) {
     <div
       ref={layer}
       className="absolute inset-0"
-      style={{ cursor: tool === 'select' ? 'default' : 'crosshair' }}
+      style={{
+        cursor: tool === 'select' ? 'default' : 'crosshair',
+        // With the select tool, a finger on empty page space scrolls, as on
+        // any page. With a drawing tool the same gesture draws, so the
+        // browser must not claim it as a scroll.
+        touchAction: tool === 'select' ? 'pan-x pan-y' : 'none',
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -484,6 +490,10 @@ export function ObjectLayer({ page, zoom }: Props) {
               // Shared with the thumbnails so placement cannot drift.
               ...objectBoxStyle(o, zoom),
               cursor: tool !== 'select' ? 'crosshair' : isText(o) ? 'text' : 'move',
+              // A finger on an object moves it rather than scrolling the
+              // page. touch-action is the intersection along the ancestor
+              // chain, so this also covers every handle inside the object.
+              touchAction: 'none',
             }}
             onPointerDown={(e) => beginMove(e, o)}
             onDoubleClick={(e) => {
@@ -550,7 +560,7 @@ export function ObjectLayer({ page, zoom }: Props) {
                       };
                       layer.current?.setPointerCapture(e.pointerId);
                     }}
-                    className="absolute h-2.5 w-2.5 border-2 border-accent bg-white"
+                    className={`absolute h-2.5 w-2.5 border-2 border-accent bg-white ${TOUCH_TARGET}`}
                     style={{ ...handlePosition(h), cursor: `${h}-resize` }}
                   />
                 ))}
@@ -591,7 +601,7 @@ export function ObjectLayer({ page, zoom }: Props) {
                       };
                       layer.current?.setPointerCapture(e.pointerId);
                     }}
-                    className="absolute h-2 w-2 rounded-sm border border-accent bg-white"
+                    className={`absolute h-2 w-2 rounded-sm border border-accent bg-white ${TOUCH_TARGET}`}
                     style={{ ...handlePosition(h), cursor: `${h}-resize` }}
                   />
                 ))}
@@ -664,6 +674,17 @@ function LinePreview({
   );
 }
 
+/**
+ * Enlarges a handle's hit area on a touchscreen without changing how it looks.
+ *
+ * Handles are drawn 8-20px across, which suits a mouse pointer but is far
+ * smaller than a fingertip. An invisible pseudo-element extends each one by
+ * 16px on every side, but only where the primary pointer is coarse, so mouse
+ * users keep precise handles that do not crowd each other on small objects.
+ */
+const TOUCH_TARGET =
+  "[@media(pointer:coarse)]:before:absolute [@media(pointer:coarse)]:before:-inset-4 [@media(pointer:coarse)]:before:content-['']";
+
 function RotateHandle({
   onPointerDown,
 }: {
@@ -675,7 +696,7 @@ function RotateHandle({
       aria-label="Rotate image"
       title="Drag to rotate · hold Shift for 15° steps"
       onPointerDown={onPointerDown}
-      className="absolute left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border border-accent bg-white text-[10px] text-accent shadow-sm"
+      className={`absolute left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border border-accent bg-white text-[10px] text-accent shadow-sm ${TOUCH_TARGET}`}
       style={{ top: -28, cursor: 'grab' }}
     >
       ⟳
@@ -700,7 +721,7 @@ function EndpointHandle({
       aria-label={label}
       title={label}
       onPointerDown={onPointerDown}
-      className="absolute h-2.5 w-2.5 rounded-full border-2 border-accent bg-white"
+      className={`absolute h-2.5 w-2.5 rounded-full border-2 border-accent bg-white ${TOUCH_TARGET}`}
       style={{ left: x - 5, top: y - 5, cursor: 'crosshair' }}
     />
   );

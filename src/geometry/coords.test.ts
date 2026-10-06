@@ -4,6 +4,7 @@ import {
   screenToPoints,
   rectToScreen,
   displaySize,
+  fitWidthZoom,
   displayToPage,
   pageToDisplay,
   rectFromDisplay,
@@ -114,5 +115,33 @@ describe('rect display conversion', () => {
     for (const rot of [0, 90, 180, 270] as const) {
       expect(rectFromDisplay(rectToDisplay(r, page(rot)), page(rot))).toEqual(r);
     }
+  });
+});
+
+describe('fitWidthZoom', () => {
+  it('fits a page to a phone-width screen', () => {
+    // 390px phone, 8px gutter each side, A4-ish 600pt page.
+    expect(fitWidthZoom(374, 600)).toBe(0.62);
+  });
+
+  it('rounds down, so the page never overflows by a rounding error', () => {
+    // 374/600 = 0.6233; rounding to nearest would also give 0.62, but 0.6299
+    // would round up to 0.63 and overflow.
+    expect(fitWidthZoom(377.94, 600)).toBe(0.62);
+    expect(600 * fitWidthZoom(377.94, 600)).toBeLessThanOrEqual(377.94);
+  });
+
+  it('uses the width the page is shown at, so a rotated page fits too', () => {
+    expect(fitWidthZoom(400, 800)).toBe(0.5);
+  });
+
+  it('stays within the editor zoom range', () => {
+    expect(fitWidthZoom(50, 600)).toBe(0.25);
+    expect(fitWidthZoom(10000, 600)).toBe(4);
+  });
+
+  it('falls back to 100% before anything has a size', () => {
+    expect(fitWidthZoom(0, 600)).toBe(1);
+    expect(fitWidthZoom(400, 0)).toBe(1);
   });
 });

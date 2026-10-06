@@ -25,6 +25,9 @@ import {
 } from './model/persistence';
 import { exportFileName, exportStem } from './model/title';
 import { useKeyboard } from './hooks/useKeyboard';
+import { NARROW_QUERY, useMediaQuery } from './hooks/useMediaQuery';
+import { displaySize, fitWidthZoom } from './geometry/coords';
+import { SidePanel } from './components/SidePanel';
 import { DropZone } from './components/DropZone';
 import { Toolbar } from './components/Toolbar';
 import { ThumbnailRail } from './components/ThumbnailRail';
@@ -41,6 +44,9 @@ import { PropertiesPanel } from './components/PropertiesPanel';
  * harmless — the worst case is landing on the document list.
  */
 const LAST_OPENED_KEY = 'pdf-editor:lastOpened';
+
+/** Padding around the page on a phone, in pixels; matches `p-2` on <main>. */
+const NARROW_GUTTER = 8;
 
 function readLastOpened(): string | null {
   try {
@@ -98,14 +104,52 @@ export default function App() {
   const closeDoc = useStore((s) => s.closeDoc);
   const addImage = useStore((s) => s.addImage);
   const appendImportedPages = useStore((s) => s.appendImportedPages);
+  const setZoom = useStore((s) => s.setZoom);
 
   const [proxy, setProxy] = useState<PDFDocumentProxy | null>(null);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const autosave = useRef(createAutosave());
+  const main = useRef<HTMLElement>(null);
 
   useKeyboard();
+
+  // Side panels sit beside the page on a wide screen and start open. On a
+  // phone they are drawers over the page, so they start closed and only one
+  // is open at a time - two would cover the whole screen.
+  const narrow = useMediaQuery(NARROW_QUERY);
+  const [pagesOpen, setPagesOpen] = useState(!narrow);
+  const [settingsOpen, setSettingsOpen] = useState(!narrow);
+
+  // Crossing the breakpoint (rotating a tablet, resizing a window) resets to
+  // that layout's natural state rather than leaving drawers stranded open.
+  useEffect(() => {
+    setPagesOpen(!narrow);
+    setSettingsOpen(!narrow);
+  }, [narrow]);
+
+  const togglePages = useCallback(() => {
+    setPagesOpen((open) => !open);
+    if (narrow) setSettingsOpen(false);
+  }, [narrow]);
+
+  const toggleSettings = useCallback(() => {
+    setSettingsOpen((open) => !open);
+    if (narrow) setPagesOpen(false);
+  }, [narrow]);
+
+  // Escape dismisses an open drawer, as it would any overlay.
+  useEffect(() => {
+    if (!narrow || (!pagesOpen && !settingsOpen)) return;
+    const close = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setPagesOpen(false);
+      setSettingsOpen(false);
+    };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [narrow, pagesOpen, settingsOpen]);
 
   // Alt suppresses snapping while held, for when it keeps fighting a nudge.
   useEffect(() => {
@@ -410,6 +454,26 @@ export default function App() {
     [doc, activePageId],
   );
 
+  // On a phone, fit the page to the screen width whenever the page, its
+  // rotation or the screen changes. A page at 100% is wider than a phone,
+  // and starting zoomed in with half the page off-screen is disorienting.
+  // Wide screens keep whatever zoom the user chose.
+  const shownWidth = activePage ? displaySize(activePage).width : 0;
+  // <main> only exists once both the document and its pdf.js proxy are in.
+  // They arrive as separate updates, so without this the effect can run while
+  // there is nothing to measure yet and never run again once there is.
+  const editorShown = !!doc && !!proxy;
+  useEffect(() => {
+    if (!narrow || !shownWidth || !editorShown) return;
+    const fit = () => {
+      const el = main.current;
+      if (el) setZoom(fitWidthZoom(el.clientWidth - 2 * NARROW_GUTTER, shownWidth));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [narrow, shownWidth, activePageId, editorShown, setZoom]);
+
   if (!doc || !proxy) {
     return busy ? (
       <div className="flex h-full items-center justify-center text-slate-500">Opening…</div>
@@ -432,6 +496,10 @@ export default function App() {
         exporting={exporting}
         onCloseDoc={onCloseDoc}
         onInsertImage={onInsertImage}
+        pagesOpen={pagesOpen}
+        onTogglePages={togglePages}
+        settingsOpen={settingsOpen}
+        onToggleSettings={toggleSettings}
       />
 
       {error && (
@@ -444,9 +512,31 @@ export default function App() {
       )}
 
       <div className="flex min-h-0 flex-1">
-        <ThumbnailRail proxy={proxy} onImportPdfs={onImportPdfs} />
-        <main className="flex-1 overflow-auto bg-slate-200 p-8">
-          <div className="flex justify-center">
+        <SidePanel
+          side="left"
+          open={pagesOpen}
+          narrow={narrow}
+          onClose={() => setPagesOpen(false)}
+          label="Pages"
+        >
+          <ThumbnailRail
+            proxy={proxy}
+            onImportPdfs={onImportPdfs}
+            // On a phone, choosing a page means "take me there", so the drawer
+            // gets out of the way of the page that was just chosen.
+            onPageChosen={() => narrow && setPagesOpen(false)}
+          />
+        </SidePanel>
+        <main ref={main} className="min-w-0 flex-1 overflow-auto bg-slate-200 p-2 md:p-8">
+          {/*
+            Centred with auto margins, not justify-content: when the page is
+            wider than this box, justify-content centring overflows BOTH sides
+            and the left edge can never be scrolled to. Auto margins collapse
+            to zero instead, so overflow only goes right, where scrolling
+            reaches it.
+          */}
+          <div className="flex">
+            <div className="mx-auto">
             {activePage && (
               <PageCanvas
                 proxy={proxy}
@@ -465,9 +555,18 @@ export default function App() {
                 <ObjectLayer page={activePage} zoom={zoom} />
               </PageCanvas>
             )}
+            </div>
           </div>
         </main>
-        <PropertiesPanel />
+        <SidePanel
+          side="right"
+          open={settingsOpen}
+          narrow={narrow}
+          onClose={() => setSettingsOpen(false)}
+          label="Settings"
+        >
+          <PropertiesPanel />
+        </SidePanel>
       </div>
     </div>
   );

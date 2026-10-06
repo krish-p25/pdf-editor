@@ -30,7 +30,7 @@ export function PropertiesPanel() {
 
   if (!o) {
     return (
-      <aside className="w-64 shrink-0 space-y-5 overflow-y-auto border-l border-edge bg-panel p-4 text-sm text-slate-400">
+      <aside className="h-full w-64 shrink-0 space-y-5 overflow-y-auto border-l border-edge bg-panel p-4 text-sm text-slate-400">
         {selection.length > 1 ? (
           <>
             <div>{selection.length} objects selected</div>
@@ -46,7 +46,7 @@ export function PropertiesPanel() {
   const set = (patch: Partial<EditorObject>) => updateObject(o.id, patch);
 
   return (
-    <aside className="w-64 shrink-0 space-y-5 overflow-y-auto border-l border-edge bg-panel p-4">
+    <aside className="h-full w-64 shrink-0 space-y-5 overflow-y-auto border-l border-edge bg-panel p-4">
       {isText(o) ? (
         <TextSection o={o} />
       ) : isImage(o) ? (

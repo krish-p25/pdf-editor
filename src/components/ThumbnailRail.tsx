@@ -1,7 +1,8 @@
 import {
   DndContext,
   closestCenter,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -21,22 +22,29 @@ import type { EditorObject, Page, PageLabel } from '../model/types';
 interface Props {
   proxy: PDFDocumentProxy;
   onImportPdfs(files: File[]): void;
+  /** Called after a page is picked, so a phone layout can close its drawer. */
+  onPageChosen?(): void;
 }
 
 /** Usable area of a thumbnail inside the rail, in CSS pixels. */
 const THUMBNAIL_WIDTH_PX = 140;
 const THUMBNAIL_HEIGHT_PX = 186;
 
-export function ThumbnailRail({ proxy, onImportPdfs }: Props) {
+export function ThumbnailRail({ proxy, onImportPdfs, onPageChosen }: Props) {
   const doc = useStore((s) => s.doc);
   const activePageId = useStore((s) => s.activePageId);
   const setActivePage = useStore((s) => s.setActivePage);
   const reorderPages = useStore((s) => s.reorderPages);
   const addBlankPage = useStore((s) => s.addBlankPage);
 
-  // A small activation distance lets a plain click select without starting a
-  // drag, while still making reordering feel immediate.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  // Mouse and touch need different rules. With a mouse, a small distance lets
+  // a click select without starting a drag. With a finger, moving is how you
+  // scroll the list, so a drag only begins after a short press-and-hold;
+  // treating a finger like a mouse would make the rail impossible to scroll.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+  );
 
   if (!doc) return null;
 
@@ -63,7 +71,10 @@ export function ThumbnailRail({ proxy, onImportPdfs }: Props) {
               count={doc.pages.length}
               active={page.id === activePageId}
               canDelete={doc.pages.length > 1}
-              onSelect={() => setActivePage(page.id)}
+              onSelect={() => {
+                setActivePage(page.id);
+                onPageChosen?.();
+              }}
             />
           ))}
         </SortableContext>
@@ -225,7 +236,11 @@ function Thumbnail({
         </div>
       </button>
 
-      <div className="absolute right-1 top-1 hidden gap-1 group-hover:flex">
+      {/*
+        Hover reveals the page actions with a mouse. A touchscreen has no
+        hover, so the active page always shows them.
+      */}
+      <div className={`absolute right-1 top-1 gap-1 ${active ? 'flex' : 'hidden group-hover:flex'}`}>
         <IconButton label="Rotate left" onClick={() => rotatePage(page.id, -90)}>
           ⟲
         </IconButton>

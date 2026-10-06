@@ -21,6 +21,12 @@ interface Props {
   exporting: boolean;
   onCloseDoc(): void;
   onInsertImage(file: File): void;
+  /** Whether the pages panel on the left is showing. */
+  pagesOpen: boolean;
+  onTogglePages(): void;
+  /** Whether the settings panel on the right is showing. */
+  settingsOpen: boolean;
+  onToggleSettings(): void;
 }
 
 export function Toolbar({
@@ -29,6 +35,10 @@ export function Toolbar({
   exporting,
   onCloseDoc,
   onInsertImage,
+  pagesOpen,
+  onTogglePages,
+  settingsOpen,
+  onToggleSettings,
 }: Props) {
   const tool = useStore((s) => s.tool);
   const setTool = useStore((s) => s.setTool);
@@ -55,15 +65,26 @@ export function Toolbar({
   };
 
   return (
-    <div className="flex shrink-0 items-center gap-1 border-b border-edge bg-surface px-3 py-2">
+    // The panel toggles and Export are pinned at the ends; only the middle
+    // scrolls sideways on a narrow screen. Export has to stay outside the
+    // scrolling strip, because a scroll container would clip its dropdown.
+    <div className="flex shrink-0 items-center gap-1 border-b border-edge bg-surface px-2 py-2 md:px-3">
+      <PanelToggle
+        label={pagesOpen ? 'Hide pages' : 'Show pages'}
+        open={pagesOpen}
+        onClick={onTogglePages}
+        glyph="☰"
+      />
+
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
       <button
         type="button"
         onClick={onCloseDoc}
         title="Save and return to your documents"
         aria-label="Back to documents"
-        className="mr-2 rounded-md px-2 py-1.5 text-sm text-slate-500 transition-colors hover:bg-slate-100"
+        className="mr-1 shrink-0 rounded-md px-2 py-1.5 text-sm text-slate-500 transition-colors hover:bg-slate-100 md:mr-2"
       >
-        ← Documents
+        ←<span className="hidden md:inline"> Documents</span>
       </button>
 
       <input
@@ -85,7 +106,7 @@ export function Toolbar({
         title="Rename this document"
         aria-label="Document title"
         placeholder="Untitled"
-        className="mr-3 w-44 truncate rounded-md border border-transparent px-2 py-1 text-sm font-medium text-slate-700 transition-colors hover:border-edge focus:border-accent focus:bg-white focus:outline-none"
+        className="mr-1 w-28 shrink-0 truncate rounded-md border md:mr-3 md:w-44 border-transparent px-2 py-1 text-sm font-medium text-slate-700 transition-colors hover:border-edge focus:border-accent focus:bg-white focus:outline-none"
       />
 
       {TOOLS.map((t) => (
@@ -96,7 +117,7 @@ export function Toolbar({
           aria-label={t.label}
           aria-pressed={tool === t.id}
           onClick={() => setTool(t.id)}
-          className={`h-8 w-8 rounded-md text-sm transition-colors ${
+          className={`h-8 w-8 shrink-0 rounded-md text-sm transition-colors ${
             tool === t.id ? 'bg-accent text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -107,7 +128,7 @@ export function Toolbar({
       <label
         title="Insert an image"
         aria-label="Insert an image"
-        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-sm text-slate-600 transition-colors hover:bg-slate-100"
+        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-sm text-slate-600 transition-colors hover:bg-slate-100"
       >
         ▣
         <input
@@ -137,21 +158,55 @@ export function Toolbar({
       <IconButton label="Zoom out" onClick={() => setZoom(zoom - 0.25)}>
         −
       </IconButton>
-      <span className="w-12 text-center text-xs tabular-nums text-slate-500">
+      <span className="w-12 shrink-0 text-center text-xs tabular-nums text-slate-500">
         {Math.round(zoom * 100)}%
       </span>
       <IconButton label="Zoom in" onClick={() => setZoom(zoom + 0.25)}>
         +
       </IconButton>
-
-      <div className="ml-auto" />
+      </div>
 
       <ExportMenu onExport={onExport} onExportImages={onExportImages} exporting={exporting} />
+
+      <PanelToggle
+        label={settingsOpen ? 'Hide settings' : 'Show settings'}
+        open={settingsOpen}
+        onClick={onToggleSettings}
+        glyph="⚙"
+      />
     </div>
   );
 }
 
-const Divider = () => <div className="mx-2 h-6 w-px bg-edge" />;
+const Divider = () => <div className="mx-1 h-6 w-px shrink-0 bg-edge md:mx-2" />;
+
+/** Shows or hides one of the side panels. */
+function PanelToggle({
+  label,
+  open,
+  onClick,
+  glyph,
+}: {
+  label: string;
+  open: boolean;
+  onClick(): void;
+  glyph: string;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-pressed={open}
+      onClick={onClick}
+      className={`h-8 w-8 shrink-0 rounded-md text-sm transition-colors ${
+        open ? 'bg-slate-200 text-slate-800' : 'text-slate-600 hover:bg-slate-100'
+      }`}
+    >
+      {glyph}
+    </button>
+  );
+}
 
 function IconButton({
   children,
@@ -168,7 +223,7 @@ function IconButton({
       title={label}
       aria-label={label}
       onClick={onClick}
-      className="h-8 w-8 rounded-md text-slate-600 transition-colors hover:bg-slate-100"
+      className="h-8 w-8 shrink-0 rounded-md text-slate-600 transition-colors hover:bg-slate-100"
     >
       {children}
     </button>
