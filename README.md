@@ -4,7 +4,7 @@
 
 A free, no-signup PDF editor for the things people actually need to do to a PDF: **reorder pages, delete pages, rotate pages, and add text boxes, arrows and shapes on top.** Then export a new PDF with your changes baked in.
 
-**Your files never leave your computer.** There is no upload, no server, no account, and no file-size queue. The PDF is opened, edited and re-saved by JavaScript running in your own browser tab — you can disconnect from the internet after the page loads and everything still works.
+**Your files never leave your computer.** There is no upload, no server, no account, and no file-size queue. The PDF is opened, edited and re-saved by JavaScript running in your own browser tab — you can disconnect from the internet after the page loads and keep working. (The one exception is adding your first HEIC photo in a browser other than Safari — see [Images](#images).)
 
 ---
 
@@ -20,7 +20,7 @@ This one does the work locally. No upload means no privacy question to worry abo
 | Account / email required | **No** | Often |
 | Watermark on the output | **No** | Often |
 | Page limits or daily quota | **No** | Usually |
-| Works offline once loaded | **Yes** | No |
+| Works offline once loaded | **Yes** (first HEIC outside Safari aside) | No |
 | Self-hostable | **Yes** (one Docker command) | No |
 
 ---
@@ -53,7 +53,7 @@ This one does the work locally. No upload means no privacy question to worry abo
 - Accepts **PNG, JPEG, GIF, WebP, BMP, HEIC/HEIF and DNG/TIFF** — so photos straight off an iPhone or a camera card go in without converting them first
 - PNG and JPEG are embedded untouched, so a screenshot stays pixel-exact
 
-> **On HEIC and RAW:** no browser except Safari can decode HEIC, so a converter is downloaded on demand the first time you add one — nobody else pays for it. A DNG is undeveloped sensor data, so its embedded full-size JPEG preview is used; a DNG saved without a preview is refused rather than silently mangled.
+> **On HEIC and RAW:** no browser except Safari can decode HEIC, so a converter (about 3 MB) is downloaded on demand the first time you add one — nobody else pays for it. That download needs a connection: outside Safari, add your first HEIC while online, and the converter then stays loaded for the rest of the session, offline or not. A DNG is undeveloped sensor data, so its embedded full-size JPEG preview is used; a DNG saved without a preview is refused rather than silently mangled.
 
 ### Precise placement
 - **Snapping** to other objects' edges and centres, to the page edges and centrelines, and to equal spacing between objects
