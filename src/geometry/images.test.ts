@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   clampCrop,
   cropPixels,
+  dragCropEdge,
+  recrop,
+  sourceFraction,
+  type CropState,
   fitWithin,
   placeAtPoint,
   preserveAspect,
@@ -190,5 +194,157 @@ describe('placeAtPoint', () => {
 
   it('leaves a box already fully inside exactly where it was dropped', () => {
     expect(placeAtPoint(40, 40, { x: 200, y: 200 }, page)).toEqual({ x: 180, y: 180 });
+  });
+});
+
+/**
+ * The property cropping must preserve: a point on the page shows the same part
+ * of the source image before and after a crop. If that holds for every kept
+ * point, nothing was stretched, squashed or moved - only hidden.
+ */
+function expectPixelsStayPut(before: CropState, after: CropState, pagePoints: { x: number; y: number }[]) {
+  for (const p of pagePoints) {
+    const was = sourceFraction(before, p);
+    const now = sourceFraction(after, p);
+    expect(now.x).toBeCloseTo(was.x, 9);
+    expect(now.y).toBeCloseTo(was.y, 9);
+  }
+}
+
+describe('dragCropEdge', () => {
+  it('moves only the dragged edge', () => {
+    expect(dragCropEdge(FULL_CROP, 'e', { x: 0.5, y: 0.9 })).toEqual({ x: 0, y: 0, width: 0.5, height: 1 });
+  });
+
+  it('keeps the opposite edge anchored when cropping from the left', () => {
+    const got = dragCropEdge(FULL_CROP, 'w', { x: 0.25, y: 0 });
+    expect(got.x).toBe(0.25);
+    expect(got.x + got.width).toBe(1);
+  });
+
+  it('moves two edges from a corner', () => {
+    const got = dragCropEdge(FULL_CROP, 'nw', { x: 0.2, y: 0.3 });
+    expect(got.x).toBeCloseTo(0.2, 12);
+    expect(got.y).toBeCloseTo(0.3, 12);
+    expect(got.width).toBeCloseTo(0.8, 12);
+    expect(got.height).toBeCloseTo(0.7, 12);
+  });
+
+  it('cannot reach past the edge of the image', () => {
+    expect(dragCropEdge({ x: 0.2, y: 0, width: 0.5, height: 1 }, 'w', { x: -3, y: 0 }).x).toBe(0);
+    expect(dragCropEdge({ x: 0, y: 0, width: 0.5, height: 1 }, 'e', { x: 9, y: 0 }).width).toBe(1);
+  });
+
+  it('stops at a minimum size without moving the anchored edge', () => {
+    const got = dragCropEdge({ x: 0.2, y: 0, width: 0.6, height: 1 }, 'w', { x: 0.99, y: 0 });
+    expect(got.x + got.width).toBeCloseTo(0.8, 12);
+    expect(got.width).toBeGreaterThan(0);
+  });
+});
+
+describe('sourceFraction', () => {
+  const state: CropState = {
+    box: { x: 100, y: 200, width: 200, height: 100 },
+    crop: FULL_CROP,
+    rotation: 0,
+  };
+
+  it('maps the box corners to the corners of the source', () => {
+    expect(sourceFraction(state, { x: 100, y: 200 })).toEqual({ x: 0, y: 0 });
+    expect(sourceFraction(state, { x: 300, y: 300 })).toEqual({ x: 1, y: 1 });
+  });
+
+  it('maps through an existing crop', () => {
+    const cropped = { ...state, crop: { x: 0.5, y: 0, width: 0.5, height: 1 } };
+    expect(sourceFraction(cropped, { x: 100, y: 200 }).x).toBeCloseTo(0.5, 12);
+    expect(sourceFraction(cropped, { x: 300, y: 200 }).x).toBeCloseTo(1, 12);
+  });
+
+  it('follows the image when it is rotated', () => {
+    // Turned 90 degrees clockwise about its centre (200, 250): the source's
+    // top-left corner is now at the top-RIGHT of the turned image.
+    const turned = { ...state, rotation: 90 };
+    const got = sourceFraction(turned, { x: 250, y: 150 });
+    expect(got.x).toBeCloseTo(0, 9);
+    expect(got.y).toBeCloseTo(0, 9);
+  });
+});
+
+describe('recrop', () => {
+  const box = { x: 100, y: 200, width: 200, height: 100 };
+  const full: CropState = { box, crop: FULL_CROP, rotation: 0 };
+
+  it('shrinks the box to the kept part instead of stretching it to fill the old box', () => {
+    // Cropping away the right half must halve the width and leave the height,
+    // not keep a 200x100 box and stretch the left half across it.
+    expect(recrop(full, { x: 0, y: 0, width: 0.5, height: 1 })).toEqual({
+      x: 100,
+      y: 200,
+      width: 100,
+      height: 100,
+    });
+  });
+
+  it('moves the box when cropping from the left, so the kept part stays put', () => {
+    expect(recrop(full, { x: 0.25, y: 0, width: 0.75, height: 1 })).toEqual({
+      x: 150,
+      y: 200,
+      width: 150,
+      height: 100,
+    });
+  });
+
+  it('keeps the drawing scale whatever is cropped', () => {
+    const crop = { x: 0.1, y: 0.2, width: 0.3, height: 0.5 };
+    const got = recrop(full, crop);
+    expect(got.width / crop.width).toBeCloseTo(box.width, 9);
+    expect(got.height / crop.height).toBeCloseTo(box.height, 9);
+  });
+
+  it('leaves every kept pixel where it was', () => {
+    const crop = { x: 0.1, y: 0.2, width: 0.5, height: 0.6 };
+    const after: CropState = { box: recrop(full, crop), crop, rotation: 0 };
+    expectPixelsStayPut(full, after, [{ x: 150, y: 230 }, { x: 180, y: 250 }, { x: 210, y: 270 }]);
+  });
+
+  it('leaves every kept pixel where it was on a rotated image', () => {
+    for (const rotation of [90, 180, 270, 37]) {
+      const start: CropState = { box, crop: FULL_CROP, rotation };
+      const crop = { x: 0.1, y: 0.2, width: 0.5, height: 0.6 };
+      const after: CropState = { box: recrop(start, crop), crop, rotation };
+      // Points chosen from inside the kept region via the source mapping, so
+      // they are valid whichever way the image is turned.
+      const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      expectPixelsStayPut(start, after, [centre, { x: centre.x + 5, y: centre.y - 3 }]);
+    }
+  });
+
+  it('re-crops an already cropped image at the same scale', () => {
+    const first = { x: 0, y: 0, width: 0.5, height: 1 };
+    const once: CropState = { box: recrop(full, first), crop: first, rotation: 0 };
+    const second = { x: 0, y: 0, width: 0.25, height: 0.5 };
+    expect(recrop(once, second)).toEqual({ x: 100, y: 200, width: 50, height: 50 });
+  });
+
+  it('restores the whole image, at the same scale, when the crop is reset', () => {
+    // Reset used to put the full image back into the cropped box, squashing it.
+    const crop = { x: 0.25, y: 0.1, width: 0.5, height: 0.8 };
+    const cropped: CropState = { box: recrop(full, crop), crop, rotation: 0 };
+    const restored = recrop(cropped, FULL_CROP);
+    expect(restored.x).toBeCloseTo(box.x, 9);
+    expect(restored.y).toBeCloseTo(box.y, 9);
+    expect(restored.width).toBeCloseTo(box.width, 9);
+    expect(restored.height).toBeCloseTo(box.height, 9);
+  });
+
+  it('restores a rotated image to exactly where it started', () => {
+    const start: CropState = { box, crop: FULL_CROP, rotation: 37 };
+    const crop = { x: 0.3, y: 0.1, width: 0.4, height: 0.7 };
+    const cropped: CropState = { box: recrop(start, crop), crop, rotation: 37 };
+    const restored = recrop(cropped, FULL_CROP);
+    expect(restored.x).toBeCloseTo(box.x, 9);
+    expect(restored.y).toBeCloseTo(box.y, 9);
+    expect(restored.width).toBeCloseTo(box.width, 9);
+    expect(restored.height).toBeCloseTo(box.height, 9);
   });
 });
