@@ -9,7 +9,14 @@ import {
 import { nextId, useStore } from '../model/store';
 import { displayToPage } from '../geometry/coords';
 import { arrowHead, constrainTo45, lineFromPoints, type Point } from '../geometry/lines';
-import { clampCrop, preserveAspect } from '../geometry/images';
+import {
+  clampCrop,
+  dragCropEdge,
+  preserveAspect,
+  recrop,
+  sourceFraction,
+  type CropState,
+} from '../geometry/images';
 import { resolveSnap, type SnapIndicator, type SnapTarget } from '../geometry/snapping';
 import { SnapIndicators } from './SnapIndicators';
 import { ShapeObjectView } from './ShapeObjectView';
@@ -24,7 +31,6 @@ import {
   isText,
   type BoxShapeKind,
   type BoxShapeObject,
-  type Crop,
   type EditorObject,
   type LineShapeKind,
   type LineShapeObject,
@@ -43,7 +49,7 @@ type Interaction =
   | { mode: 'resize'; id: string; handle: Handle; origin: Rect }
   | { mode: 'endpoint'; id: string; which: 'start' | 'end'; anchor: Point }
   | { mode: 'rotate'; id: string; centre: Point; startAngle: number; startRotation: number }
-  | { mode: 'crop'; id: string; handle: Handle; origin: Crop };
+  | { mode: 'crop'; id: string; handle: Handle; origin: CropState };
 
 interface Props {
   page: Page;
@@ -188,31 +194,13 @@ export function ObjectLayer({ page, zoom }: Props) {
     }
 
     if (current.mode === 'crop') {
-      const obj = doc?.objects[current.id];
-      if (!obj || !isImage(obj)) return;
-
-      // Pointer position as a fraction of the visible box, mapped back through
-      // the current crop into source coordinates.
-      const fx = (p.x - obj.x) / obj.width;
-      const fy = (p.y - obj.y) / obj.height;
-      const sx = current.origin.x + fx * current.origin.width;
-      const sy = current.origin.y + fy * current.origin.height;
-
-      const next = { ...current.origin };
-      if (current.handle.includes('w')) {
-        const right = current.origin.x + current.origin.width;
-        next.x = Math.min(sx, right);
-        next.width = right - next.x;
-      }
-      if (current.handle.includes('e')) next.width = sx - next.x;
-      if (current.handle.includes('n')) {
-        const bottom = current.origin.y + current.origin.height;
-        next.y = Math.min(sy, bottom);
-        next.height = bottom - next.y;
-      }
-      if (current.handle.includes('s')) next.height = sy - next.y;
-
-      updateObjectTransient(current.id, { crop: clampCrop(next) });
+      // Everything is worked out from the state at the start of the drag, as
+      // resize does: the box changes as the crop does, so measuring against
+      // the live box would drift. The box and the crop move together, so the
+      // kept part of the image stays the same size and on the same spot.
+      const at = sourceFraction(current.origin, p);
+      const crop = dragCropEdge(current.origin.crop, current.handle, at);
+      updateObjectTransient(current.id, { ...recrop(current.origin, crop), crop });
       return;
     }
 
@@ -556,7 +544,11 @@ export function ObjectLayer({ page, zoom }: Props) {
                         mode: 'crop',
                         id: o.id,
                         handle: h,
-                        origin: clampCrop(o.crop),
+                        origin: {
+                          box: { x: o.x, y: o.y, width: o.width, height: o.height },
+                          crop: clampCrop(o.crop),
+                          rotation: o.rotation,
+                        },
                       };
                       layer.current?.setPointerCapture(e.pointerId);
                     }}

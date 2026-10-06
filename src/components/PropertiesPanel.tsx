@@ -3,7 +3,7 @@ import { nextId, useStore } from '../model/store';
 import { headerLabel, pageNumberLabel } from '../model/pageLabels';
 import { defaultStyleOf, rangeStyle, type StyleKey } from '../model/textSpans';
 import { lineLength } from '../geometry/lines';
-import { FULL_CROP } from '../geometry/images';
+import { FULL_CROP, recrop } from '../geometry/images';
 import type { AlignEdge } from '../geometry/align';
 import {
   isBoxShape,
@@ -88,7 +88,19 @@ export function PropertiesPanel() {
           </Row>
 
           <div className="flex gap-2 pt-1">
-            <SmallButton onClick={() => set({ crop: { ...FULL_CROP } })}>Reset crop</SmallButton>
+            <SmallButton
+              onClick={() =>
+                // The box grows back to the whole image at the same scale.
+                // Resetting only the crop would squash the whole image into
+                // the cropped box.
+                set({
+                  ...recrop({ box: o, crop: o.crop, rotation: o.rotation }, FULL_CROP),
+                  crop: { ...FULL_CROP },
+                })
+              }
+            >
+              Reset crop
+            </SmallButton>
             <SmallButton onClick={() => set({ rotation: 0 })}>Reset angle</SmallButton>
           </div>
           <SmallButton
