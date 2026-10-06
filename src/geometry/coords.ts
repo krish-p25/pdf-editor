@@ -22,6 +22,20 @@ export function rectFromScreen(r: Rect, scale: number): Rect {
   return { x: r.x / scale, y: r.y / scale, width: r.width / scale, height: r.height / scale };
 }
 
+/**
+ * The zoom at which a page of `displayWidth` points fits `availableWidth`
+ * pixels, within the editor's 25%-400% range.
+ *
+ * Rounded DOWN to a whole percent. The store rounds zoom to the nearest
+ * percent, which on its own could round up and overflow the screen by a pixel
+ * or two; flooring first makes that rounding a no-op.
+ */
+export function fitWidthZoom(availableWidth: number, displayWidth: number): number {
+  if (availableWidth <= 0 || displayWidth <= 0) return 1;
+  const fit = Math.floor((availableWidth / displayWidth) * 100) / 100;
+  return Math.min(4, Math.max(0.25, fit));
+}
+
 /** Size of the page as the user sees it, after rotation. */
 export function displaySize(page: PageGeometry): { width: number; height: number } {
   return page.rotation === 90 || page.rotation === 270

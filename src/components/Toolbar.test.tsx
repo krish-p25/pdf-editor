@@ -4,9 +4,11 @@ import { Toolbar } from './Toolbar';
 
 afterEach(cleanup);
 
-const setup = () => {
+const setup = (panels: { pagesOpen?: boolean; settingsOpen?: boolean } = {}) => {
   const onExport = vi.fn();
   const onExportImages = vi.fn();
+  const onTogglePages = vi.fn();
+  const onToggleSettings = vi.fn();
   render(
     <Toolbar
       onExport={onExport}
@@ -14,9 +16,13 @@ const setup = () => {
       exporting={false}
       onCloseDoc={vi.fn()}
       onInsertImage={vi.fn()}
+      pagesOpen={panels.pagesOpen ?? true}
+      onTogglePages={onTogglePages}
+      settingsOpen={panels.settingsOpen ?? true}
+      onToggleSettings={onToggleSettings}
     />,
   );
-  return { onExport, onExportImages };
+  return { onExport, onExportImages, onTogglePages, onToggleSettings };
 };
 
 describe('export menu', () => {
@@ -60,5 +66,31 @@ describe('export menu', () => {
     // mousedown rather than pointerdown: jsdom has no PointerEvent.
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole('button', { name: 'Export images' })).toBeNull();
+  });
+});
+
+describe('panel toggles', () => {
+  it('hides an open pages panel', () => {
+    const { onTogglePages } = setup({ pagesOpen: true });
+    const toggle = screen.getByRole('button', { name: 'Hide pages' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(toggle);
+    expect(onTogglePages).toHaveBeenCalledOnce();
+  });
+
+  it('offers to show a closed settings panel', () => {
+    const { onToggleSettings } = setup({ settingsOpen: false });
+    const toggle = screen.getByRole('button', { name: 'Show settings' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(toggle);
+    expect(onToggleSettings).toHaveBeenCalledOnce();
+  });
+
+  it('keeps Export outside the scrolling strip, so its menu is never clipped', () => {
+    setup();
+    const exportButton = screen.getByRole('button', { name: 'Export PDF' });
+    const strip = screen.getByRole('button', { name: 'Back to documents' }).parentElement!;
+    expect(strip.className).toContain('overflow-x-auto');
+    expect(strip.contains(exportButton)).toBe(false);
   });
 });

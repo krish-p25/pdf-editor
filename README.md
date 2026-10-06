@@ -151,7 +151,9 @@ Two details that turn out to matter:
 
 ## Browser support
 
-Any current version of Chrome, Edge, Firefox, Safari or another Chromium-based browser. It needs a desktop-sized window — precise drag-and-drop editing on a phone screen isn't a good experience, so mobile isn't a target.
+Any current version of Chrome, Edge, Firefox, Safari or another Chromium-based browser, on desktop or phone.
+
+On a phone the page fits the screen width, and the page list and editing settings become drawers that slide in from the left and right (☰ and ⚙ in the toolbar). Drag objects with a finger, long-press a thumbnail to reorder pages, and the handles grow to finger size on touchscreens. With the select tool a finger on empty page space scrolls; pick a drawing tool to draw. On a larger screen the same ☰ and ⚙ buttons collapse the side panels to give the page more room.
 
 ---
 
